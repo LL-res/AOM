@@ -1,0 +1,12 @@
+apiVersion: automation.buaa.io/v1
+kind: AOM
+metadata:
+  labels:
+    app.kubernetes.io/name: aom
+    app.kubernetes.io/instance: aom-sample
+    app.kubernetes.io/part-of: aom
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: aom
+  name: aom-sample
+spec:
+  # TODO(user): Add fields here
