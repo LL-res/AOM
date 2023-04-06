@@ -37,6 +37,7 @@ import (
 const (
 	defaultSyncPeriod       = 15 * time.Second
 	defaultErrorRetryPeriod = 10 * time.Second
+	metricMap               = "metricMap"
 )
 
 var (
@@ -85,7 +86,7 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	scaleTargetRef := instance.Spec.ScaleTargetRef
 	metricMap := make(map[string]struct{})
-	ctx = context.WithValue(ctx, "metricMap", metricMap)
+	ctx = context.WithValue(ctx, metricMap, metricMap)
 	if err := checkCollector(ctx, instance); err != nil {
 		return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
 	}
@@ -102,20 +103,20 @@ func (r *AOMReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func checkCollector(ctx context.Context, aom *automationv1.AOM) error {
 	logger := log.FromContext(ctx)
 
-	if aom.Status.Collector == "up" {
+	if aom.Status.CollectorStatus == "up" {
 		// 其中的元素是格式化之后的metric
 		toDelete := make([]string, 0)
 		toAdd := make([]automationv1.Metric, 0)
 
 		// spec中存在，但map中不存在，进行更新
 		for _, v := range aom.Spec.Metrics {
-			if _, ok := aom.Status.Collectors[v.NoModelKey()]; !ok {
+			if _, ok := aom.Status.CollectorMap[v.NoModelKey()]; !ok {
 				toAdd = append(toAdd, v)
 			}
 
 		}
 		// map 中存在但 spec中不存在，进行删除
-		for k := range aom.Status.Collectors {
+		for k := range aom.Status.CollectorMap {
 			exist := false
 			for _, v := range aom.Spec.Metrics {
 				if v.NoModelKey() == k {
@@ -128,7 +129,7 @@ func checkCollector(ctx context.Context, aom *automationv1.AOM) error {
 			}
 			toDelete = append(toDelete, k)
 		}
-		metricMap := ctx.Value("metricMap").(map[string]struct{}) // update or delete
+		metricMap := ctx.Value(metricMap).(map[string]struct{})
 		for _, v := range toDelete {
 			delete(metricMap, v)
 		}
@@ -144,6 +145,11 @@ func checkCollector(ctx context.Context, aom *automationv1.AOM) error {
 			}
 			go StartWorker(ctx, worker, aom)
 		}
+		// 更新status
+		aom.Status.CollectorMap = make(map[string]struct{})
+		for _, v := range aom.Spec.Metrics {
+			aom.Status.CollectorMap[v.NoModelKey()] = struct{}{}
+		}
 		return nil
 	}
 
@@ -157,7 +163,7 @@ func checkCollector(ctx context.Context, aom *automationv1.AOM) error {
 	}
 
 	for _, metric := range aom.Spec.Metrics {
-		ctx.Value("metricMap").(map[string]struct{})[metric.NoModelKey()] = struct{}{}
+		ctx.Value(metricMap).(map[string]struct{})[metric.NoModelKey()] = struct{}{}
 		pCollector.AddCustomMetrics(collector.MetricType{
 			Name: metric.Name,
 			Unit: metric.Unit,
@@ -176,7 +182,7 @@ func checkCollector(ctx context.Context, aom *automationv1.AOM) error {
 		go StartWorker(ctx, worker, aom)
 	}
 
-	aom.Status.Collector = "up"
+	aom.Status.CollectorStatus = "up"
 
 	return nil
 }
@@ -185,7 +191,7 @@ func StartWorker(ctx context.Context, worker collector.MetricCollector, aom *aut
 	end := false
 	defer ticker.Stop()
 	for _ = range ticker.C {
-		if _, ok := ctx.Value("metricMap").(map[string]struct{})[worker.String()]; !ok || end {
+		if _, ok := ctx.Value(metricMap).(map[string]struct{})[worker.String()]; !ok || end {
 			break
 		}
 		select {

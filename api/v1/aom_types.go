@@ -77,8 +77,8 @@ type AOMStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 	// up or down
-	Collector  string `json:"collector"`
-	Collectors map[string]struct{}
+	CollectorStatus string `json:"collector"`
+	CollectorMap    map[string]struct{}
 }
 
 //+kubebuilder:object:root=true
