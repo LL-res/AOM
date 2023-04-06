@@ -17,7 +17,10 @@ limitations under the License.
 package v1
 
 import (
+	"fmt"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"time"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -27,15 +30,55 @@ import (
 type AOMSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	ScaleTargetRef autoscalingv2.CrossVersionObjectReference `json:"scaleTargetRef"`
 
-	// Foo is an example field of AOM. Edit aom_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	MinReplicas *int32 `json:"minReplicas"`
+
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	MaxReplicas int32     `json:"maxReplicas"`
+	Collector   Collector `json:"collector"`
+	Metrics     []Metric  `json:"metrics"`
+}
+type Collector struct {
+	Address        string        `json:"address"`
+	ScrapeInterval time.Duration `json:"scrapeInterval"`
+}
+type Metric struct {
+	Name  string `json:"name"`
+	Unit  string `json:"unit"`
+	Query string `json:"query"`
+	Model Model  `json:"model"`
+}
+
+func (m Metric) NoModelKey() string {
+	return fmt.Sprintf("%s/%s/%s", m.Name, m.Unit, m.Query)
+}
+
+type Model struct {
+	GRU GRU
+}
+type GRU struct {
+	// how far in second GRU will use to train
+	// +optional
+	TrainSize   int `json:"trainSize"`
+	LookBack    int `json:"lookBack"`
+	LookForward int `json:"lookForward"`
+
+	ScaleUpThreshold float64 `json:"scaleUpThreshold"`
+	//retrain interval
+	UpdateInterval *metav1.Duration `json:"updateInterval"`
 }
 
 // AOMStatus defines the observed state of AOM
 type AOMStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	// up or down
+	Collector  string `json:"collector"`
+	Collectors map[string]struct{}
 }
 
 //+kubebuilder:object:root=true
