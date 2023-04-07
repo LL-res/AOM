@@ -37,7 +37,7 @@ import (
 const (
 	defaultSyncPeriod       = 15 * time.Second
 	defaultErrorRetryPeriod = 10 * time.Second
-	metricMap               = "metricMap"
+	metricMapKey            = "metricMap"
 )
 
 var (
@@ -86,7 +86,7 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	scaleTargetRef := instance.Spec.ScaleTargetRef
 	metricMap := make(map[string]struct{})
-	ctx = context.WithValue(ctx, metricMap, metricMap)
+	ctx = context.WithValue(ctx, metricMapKey, metricMap)
 	if err := checkCollector(ctx, instance); err != nil {
 		return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
 	}
@@ -102,9 +102,9 @@ func (r *AOMReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 func checkCollector(ctx context.Context, aom *automationv1.AOM) error {
 	logger := log.FromContext(ctx)
-
+	//如果collector已经启动则进行更新删除等检查
 	if aom.Status.CollectorStatus == "up" {
-		// 其中的元素是格式化之后的metric
+		// 其中的元素是格式化之后的metric，格式为: name/unit/query
 		toDelete := make([]string, 0)
 		toAdd := make([]automationv1.Metric, 0)
 
@@ -125,11 +125,10 @@ func checkCollector(ctx context.Context, aom *automationv1.AOM) error {
 				}
 			}
 			if !exist {
-				toDelete = append(toDelete)
+				toDelete = append(toDelete, k)
 			}
-			toDelete = append(toDelete, k)
 		}
-		metricMap := ctx.Value(metricMap).(map[string]struct{})
+		metricMap := ctx.Value(metricMapKey).(map[string]struct{})
 		for _, v := range toDelete {
 			delete(metricMap, v)
 		}
@@ -163,7 +162,7 @@ func checkCollector(ctx context.Context, aom *automationv1.AOM) error {
 	}
 
 	for _, metric := range aom.Spec.Metrics {
-		ctx.Value(metricMap).(map[string]struct{})[metric.NoModelKey()] = struct{}{}
+		ctx.Value(metricMapKey).(map[string]struct{})[metric.NoModelKey()] = struct{}{}
 		pCollector.AddCustomMetrics(collector.MetricType{
 			Name: metric.Name,
 			Unit: metric.Unit,
@@ -191,7 +190,7 @@ func StartWorker(ctx context.Context, worker collector.MetricCollector, aom *aut
 	end := false
 	defer ticker.Stop()
 	for _ = range ticker.C {
-		if _, ok := ctx.Value(metricMap).(map[string]struct{})[worker.String()]; !ok || end {
+		if _, ok := ctx.Value(metricMapKey).(map[string]struct{})[worker.String()]; !ok || end {
 			break
 		}
 		select {
