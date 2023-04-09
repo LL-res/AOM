@@ -58,7 +58,8 @@ func (m Metric) NoModelKey() string {
 }
 
 type Model struct {
-	GRU GRU
+	Type string // GRU LSTM
+	GRU  GRU
 }
 type GRU struct {
 	// how far in second GRU will use to train

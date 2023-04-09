@@ -21,6 +21,7 @@ type MetricCollector interface {
 	Collect() error
 	Send() []Metric
 	String() string
+	DataCap() int
 }
 type CollectorBase struct {
 	//key: the name of  supported metric type,value: the promql to get key metric type

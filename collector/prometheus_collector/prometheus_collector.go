@@ -98,6 +98,12 @@ func (w *worker) Send() []collector.Metric {
 	w.data = make([]collector.Metric, 0)
 	return res
 }
+func (w *worker) DataCap() int {
+	if w.data == nil {
+		return 0
+	}
+	return len(w.data)
+}
 func (w worker) String() string {
 	return fmt.Sprintf("%s/%s/%s", w.Name, w.Unit, w.promql)
 }
