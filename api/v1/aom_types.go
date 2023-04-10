@@ -68,6 +68,7 @@ type GRU struct {
 	LookBack    int `json:"lookBack"`
 	LookForward int `json:"lookForward"`
 
+	//暂时把它当作，需要维持在的值
 	ScaleUpThreshold float64 `json:"scaleUpThreshold"`
 	//retrain interval
 	UpdateInterval *metav1.Duration `json:"updateInterval"`
