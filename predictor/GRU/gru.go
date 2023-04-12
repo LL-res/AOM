@@ -19,42 +19,13 @@ import (
 )
 
 const (
-	defaultTimeout = 30000
 	RespRecvAdress = "/tmp/rra.socket"
 	Epochs         = 100
 	Nlayers        = 2
 )
 
-type AlgorithmRunner interface {
-	RunAlgorithmWithValue(algorithmPath string, value string, timeout int) (string, error)
-}
-
 // 在controller里控制要不要进行predict或者train，status里记录了模型的状态
 // 在这里的预测服务只要专心进行预测即可
-// Predict provides logic for using GRU to make a prediction
-type GRU struct {
-	predictor.Base
-	model           automationv1.Model
-	collectorWorker collector.MetricCollector
-	readyToPredict  bool
-	address         string
-	ScaleTargetRef  autoscalingv2.CrossVersionObjectReference
-}
-
-type Request struct {
-	PredictHistory []float64 `json:"predict_history"`
-	TrainHistory   []float64 `json:"train_history"`
-	RespRecvAdress string    `json:"resp_recv_address"`
-	LookBack       int       `json:"look_back"`
-	LookForward    int       `json:"look_forward"`
-	BatchSize      int       `json:"batch_size"`
-	Epochs         int       `json:"epochs"`
-	NLayers        int       `json:"n_layers"`
-}
-type Response struct {
-	Trained    bool      `json:"trained"`
-	Prediction []float64 `json:"prediction"`
-}
 
 func New(collectorWorker collector.MetricCollector, model automationv1.Model, address string, ScaleTargetRef autoscalingv2.CrossVersionObjectReference) (*GRU, error) {
 	return &GRU{
@@ -69,6 +40,7 @@ func New(collectorWorker collector.MetricCollector, model automationv1.Model, ad
 	}, nil
 
 }
+
 func (g *GRU) Predict(ctx context.Context, aom *automationv1.AOM) ([]int32, error) {
 	if !g.readyToPredict {
 		return nil, errors.New("the model is not ready to predict")
@@ -164,7 +136,8 @@ func (g *GRU) Predict(ctx context.Context, aom *automationv1.AOM) ([]int32, erro
 func (g *GRU) GetType() string {
 	return automationv1.TypeGRU
 }
-func (g *GRU) Train() error {
+
+func (g *GRU) Train(ctx context.Context) error {
 	if len(g.MetricHistory) < g.model.GRU.TrainSize {
 		return errors.New("no sufficient data to train")
 	}
@@ -208,13 +181,14 @@ func (g *GRU) Train() error {
 	// 起一个协程去等输出，此刻直接返回
 	// 协程收到返回后进行状态更新
 	go func() {
-		_ = g.WaitAndUpdate()
+		_ = g.WaitAndUpdate(ctx)
 	}()
 
 	return nil
 
 }
-func (g *GRU) WaitAndUpdate() error {
+
+func (g *GRU) WaitAndUpdate(ctx context.Context) error {
 	//如果socket文件存在，则进行移除
 	if _, err := os.Stat(RespRecvAdress); err == nil {
 		err := os.Remove(RespRecvAdress)
