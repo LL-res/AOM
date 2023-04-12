@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"net"
+	"os"
 
 	"log"
 )
@@ -207,51 +208,67 @@ func (g *GRU) Train() error {
 	// 起一个协程去等输出，此刻直接返回
 	// 协程收到返回后进行状态更新
 	go func() {
-		// 收到一次响应后直接断开
-		l, err := net.Listen("unix", RespRecvAdress)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		defer func() {
-			err := l.Close()
-			if err != nil {
-				log.Println(err)
-				return
-			}
-		}()
-		conn, err := l.Accept()
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		bufSize := 1024
-		buf := make([]byte, bufSize)
-		var res string
-		for {
-			n, err := conn.Read(buf)
-			if n == bufSize {
-				res += string(buf)
-				continue
-			}
-			if err != nil {
-				log.Println(err)
-				return
-			}
-			if n < bufSize {
-				res += string(buf[:n])
-				break
-			}
-		}
-		resp := Response{}
-		err = json.Unmarshal([]byte(res), &resp)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		g.readyToPredict = resp.Trained
+		_ = g.WaitAndUpdate()
 	}()
 
 	return nil
 
+}
+func (g *GRU) WaitAndUpdate() error {
+	//如果socket文件存在，则进行移除
+	if _, err := os.Stat(RespRecvAdress); err == nil {
+		err := os.Remove(RespRecvAdress)
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+	}
+	// 收到一次响应后直接断开
+	l, err := net.Listen("unix", RespRecvAdress)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	defer func() {
+		err := l.Close()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+	}()
+	conn, err := l.Accept()
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	bufSize := 1024
+	buf := make([]byte, bufSize)
+	var res string
+	for {
+		n, err := conn.Read(buf)
+		if err == io.EOF {
+			res += string(buf[:n])
+			break
+		}
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+		if n == bufSize {
+			res += string(buf)
+			continue
+		}
+		if n < bufSize {
+			res += string(buf[:n])
+			break
+		}
+	}
+	resp := Response{}
+	err = json.Unmarshal([]byte(res), &resp)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	g.readyToPredict = resp.Trained
+	return nil
 }
