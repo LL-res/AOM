@@ -5,23 +5,23 @@ import (
 	"encoding/json"
 	"errors"
 	automationv1 "github.com/LL-res/AOM/api/v1"
+	"github.com/LL-res/AOM/clients/k8s"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/predictor"
 	"io"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"net"
 
 	"log"
-	"sort"
-	"time"
 )
 
 const (
 	defaultTimeout = 30000
-	algorithmPath  = "algorithms/linear_regression/linear_regression.py"
+	RespRecvAdress = "/tmp/rra.socket"
+	Epochs         = 100
+	Nlayers        = 2
 )
 
 type AlgorithmRunner interface {
@@ -39,19 +39,11 @@ type GRU struct {
 	address         string
 	ScaleTargetRef  autoscalingv2.CrossVersionObjectReference
 }
-type GRUParameters struct {
-	LookAhead      time.Duration                                `json:"lookAhead"`
-	MetricsHistory []jamiethompsonmev1alpha1.TimestampedMetrics `json:"metricsHistory"`
-	// predict or train
-	Status int `json:"status"`
-}
-type GRUResult struct {
-	Value   int  `json:"value"`
-	Trained bool `json:"trained"`
-}
+
 type Request struct {
 	PredictHistory []float64 `json:"predict_history"`
 	TrainHistory   []float64 `json:"train_history"`
+	RespRecvAdress string    `json:"resp_recv_address"`
 	LookBack       int       `json:"look_back"`
 	LookForward    int       `json:"look_forward"`
 	BatchSize      int       `json:"batch_size"`
@@ -76,13 +68,13 @@ func New(collectorWorker collector.MetricCollector, model automationv1.Model, ad
 	}, nil
 
 }
-func (g *GRU) Predict(lastUpdateTime time.Time) (int32, error) {
+func (g *GRU) Predict(ctx context.Context, aom *automationv1.AOM) ([]int32, error) {
 	if !g.readyToPredict {
-		return 0, errors.New("the model is not ready to predict")
+		return nil, errors.New("the model is not ready to predict")
 	}
 	// 如果worker中的数据量不足，直接返回
 	if g.collectorWorker.DataCap() < g.model.GRU.LookForward {
-		return 0, errors.New("no sufficient data to predict")
+		return nil, errors.New("no sufficient data to predict")
 	}
 	tempData := g.collectorWorker.Send()
 	// with timestamp
@@ -99,11 +91,11 @@ func (g *GRU) Predict(lastUpdateTime time.Time) (int32, error) {
 	}
 	reqJson, err := json.Marshal(req)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	conn, err := net.Dial("unix", g.address)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer func() {
 		err := conn.Close()
@@ -115,13 +107,13 @@ func (g *GRU) Predict(lastUpdateTime time.Time) (int32, error) {
 	_, err = conn.Write(reqJson)
 
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	bufSize := 1024
 	buf := make([]byte, bufSize)
 	n, err := conn.Read(buf)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	responseJson := string(buf[:n])
 
@@ -131,133 +123,135 @@ func (g *GRU) Predict(lastUpdateTime time.Time) (int32, error) {
 			break
 		}
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		responseJson += string(buf[:n])
 	}
 	response := Response{}
 	err = json.Unmarshal([]byte(responseJson), &response)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	if !response.Trained {
-		return 0, errors.New("the model is not ready to predict")
+		return nil, errors.New("the model is not ready to predict")
 	}
 
+	scaleGetter, err := k8s.GlobalClient.NewScaleClient()
+	if err != nil {
+		return nil, err
+	}
+	scaleObj, err := scaleGetter.Scales(aom.Namespace).Get(ctx, schema.GroupResource{
+		Group:    aom.Spec.ScaleTargetRef.APIVersion,
+		Resource: aom.Spec.ScaleTargetRef.Kind,
+	}, aom.Spec.ScaleTargetRef.Name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
 	//通过预测指标算出需要的副本数
-	currentReplicas := g.ScaleTargetRef.
-	for _,v := range response.Prediction{
-		v/g.model.GRU.ScaleUpThreshold*
-	}
-	g.model.GRU.ScaleUpThreshold
-	response.Prediction
-	var status int
-	now := time.Now()
-	// 00 stand for train predict
-	//e.g. 01 predict ,11 train and predict,10 train
-	// predictSize < trainSize
-	switch {
-	case len(metricsHistory) < model.GRU.PredictSize:
-		return 0, errors.New("no sufficient data to train or predict")
-	case len(metricsHistory) > model.GRU.TrainSize && now.Add(-model.GRU.UpdateInterval.Duration).After(lastUpdateTime):
-		status = 3
-	default:
-		status = 1
-	}
-	parameters, err := json.Marshal(GRUParameters{
-		LookAhead:      model.GRU.LookAhead,
-		MetricsHistory: metricsHistory,
-		Status:         status,
-	})
-	if err != nil {
-		panic(err)
-	}
-	timeout := defaultTimeout
-	if model.CalculationTimeout != nil {
-		timeout = *model.CalculationTimeout
+	currentReplicas := scaleObj.Spec.Replicas
+	targetReplicasList := make([]int32, 0)
+
+	for _, v := range response.Prediction {
+		targetReplicas := int32(v/g.model.GRU.ScaleUpThreshold) * currentReplicas
+		currentReplicas = targetReplicas
+		targetReplicasList = append(targetReplicasList, targetReplicas)
 	}
 
-	data, err := p.Runner.RunAlgorithmWithValue(algorithmPath, string(parameters), timeout)
-	if err != nil {
-		return 0, err
-	}
-	res := GRUResult{}
-	err = json.Unmarshal([]byte(data), &res)
-	if err != nil {
-		return 0, err
-	}
-	p.trained = res.Trained
-	return int32(res.Value), nil
-}
-
-func (g *GRU) PruneHistory(model *jamiethompsonmev1alpha1.Model, replicaHistory []jamiethompsonmev1alpha1.TimestampedReplicas) ([]jamiethompsonmev1alpha1.TimestampedReplicas, error) {
-	if model.Linear == nil {
-		return nil, errors.New("no GRU configuration provided for model")
-	}
-
-	if len(replicaHistory) < model.Linear.HistorySize {
-		return replicaHistory, nil
-	}
-
-	// Sort by date created, newest first
-	sort.Slice(replicaHistory, func(i, j int) bool {
-		return !replicaHistory[i].Time.Before(replicaHistory[j].Time)
-	})
-
-	// Remove oldest to fit into requirements, have to loop from the end to allow deletion without affecting indices
-	for i := len(replicaHistory) - 1; i >= model.Linear.HistorySize; i-- {
-		replicaHistory = append(replicaHistory[:i], replicaHistory[i+1:]...)
-	}
-
-	return replicaHistory, nil
+	return targetReplicasList, nil
 }
 
 func (g *GRU) GetType() string {
-	return jamiethompsonmev1alpha1.TypeGRU
+	return automationv1.TypeGRU
 }
-func (g *GRU) Train(model *jamiethompsonmev1alpha1.Model) error {
-	if len(g.MetricHistory) < model.GRU.TrainSize {
-		return errors.New("no sufficient data to train or predict")
+func (g *GRU) Train() error {
+	if len(g.MetricHistory) < g.model.GRU.TrainSize {
+		return errors.New("no sufficient data to train")
 	}
-	parameters, err := json.Marshal(GRUParameters{
-		LookAhead:      model.GRU.LookAhead,
-		MetricsHistory: g.MetricHistory,
-	})
+	tempData := g.collectorWorker.Send()
+	//with timestamp
+	TrainData := tempData[len(tempData)-g.model.GRU.TrainSize:]
+	//no timestamp
+	TrainHistory := make([]float64, 0, len(TrainData))
+	for _, v := range TrainData {
+		TrainHistory = append(TrainHistory, v.Value)
+	}
+	req := Request{
+		TrainHistory: TrainHistory,
+		LookBack:     g.model.GRU.LookBack,
+		LookForward:  g.model.GRU.LookForward,
+		BatchSize:    g.model.GRU.TrainSize / 10,
+		Epochs:       Epochs,
+		NLayers:      Nlayers,
+	}
+	reqJson, err := json.Marshal(req)
 	if err != nil {
 		return err
 	}
-	timeout := defaultTimeout
-	res, err := g.Runner.RunAlgorithmWithValue(algorithmPath, string(parameters), timeout)
+	conn, err := net.Dial("unix", g.address)
 	if err != nil {
-		log.Println(err)
 		return err
 	}
+	defer func() {
+		err := conn.Close()
+		if err != nil {
+			log.Println(err)
+		}
+	}()
+	// 客户端发送一次的数据接收到响应后断开连接
+	_, err = conn.Write(reqJson)
 
-}
-func GetReplicasCount(crossVersionObjectRef *autoscalingv2.CrossVersionObjectReference) (int32, error) {
-	// 构建 Kubernetes 配置
-	config, err := rest.InClusterConfig()
 	if err != nil {
-		return 0, err
+		return err
 	}
+	// 由于训练时间较长
+	// 起一个协程去等输出，此刻直接返回
+	// 协程收到返回后进行状态更新
+	go func() {
+		// 收到一次响应后直接断开
+		l, err := net.Listen("unix", RespRecvAdress)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		defer func() {
+			err := l.Close()
+			if err != nil {
+				log.Println(err)
+				return
+			}
+		}()
+		conn, err := l.Accept()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		bufSize := 1024
+		buf := make([]byte, bufSize)
+		var res string
+		for {
+			n, err := conn.Read(buf)
+			if n == bufSize {
+				res += string(buf)
+				continue
+			}
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			if n < bufSize {
+				res += string(buf[:n])
+				break
+			}
+		}
+		resp := Response{}
+		err = json.Unmarshal([]byte(res), &resp)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		g.readyToPredict = resp.Trained
+	}()
 
-	// 创建 Kubernetes 客户端
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return 0, err
-	}
+	return nil
 
-	// 获取 AutoscalingV2beta2 接口
-	hpaClient := clientset.AutoscalingV2beta2().HorizontalPodAutoscalers(crossVersionObjectRef.)
-
-	// 获取 HorizontalPodAutoscaler 对象
-	hpa, err := hpaClient.Get(context.Background(), crossVersionObjectRef.Name, v1.GetOptions{})
-	if err != nil {
-		return 0, err
-	}
-
-	// 获取副本数量
-	replicas := hpa.Status.CurrentReplicas
-
-	return replicas, nil
 }
