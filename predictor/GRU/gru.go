@@ -20,6 +20,7 @@ import (
 )
 
 const (
+	pySocket       = "/tmp/gru.socket"
 	RespRecvAdress = "/tmp/rra.socket"
 	Epochs         = 100
 	Nlayers        = 2
@@ -28,15 +29,16 @@ const (
 // 在controller里控制要不要进行predict或者train，status里记录了模型的状态
 // 在这里的预测服务只要专心进行预测即可
 
-func New(collectorWorker collector.MetricCollector, model automationv1.Model, address string, ScaleTargetRef autoscalingv2.CrossVersionObjectReference) (*GRU, error) {
+func New(collectorWorker collector.MetricCollector, model automationv1.Model, ScaleTargetRef autoscalingv2.CrossVersionObjectReference, withModelKey string) (*GRU, error) {
 	return &GRU{
 		Base: predictor.Base{
 			MetricHistory: collectorWorker.Send(),
 		},
+		withModelKey:    withModelKey,
 		model:           model,
 		collectorWorker: collectorWorker,
 		readyToPredict:  atomic.NewBool(false),
-		address:         address,
+		address:         model.GRU.Address,
 		ScaleTargetRef:  ScaleTargetRef,
 	}, nil
 
@@ -246,4 +248,8 @@ func (g *GRU) WaitAndUpdate(ctx context.Context) error {
 	}
 	g.readyToPredict.Store(resp.Trained)
 	return nil
+}
+
+func (g *GRU) Key() string {
+	return g.withModelKey
 }

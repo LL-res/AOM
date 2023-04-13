@@ -60,6 +60,9 @@ func (m Metric) NoModelKey() string {
 type Model struct {
 	Type string // GRU LSTM
 	GRU  GRU
+	LSTM LSTM
+}
+type LSTM struct {
 }
 type GRU struct {
 	// how far in second GRU will use to train
@@ -75,6 +78,32 @@ type GRU struct {
 	UpdateInterval *metav1.Duration `json:"updateInterval"`
 }
 
+type PredictorHistory struct {
+	PredictHistory []time.Time
+	TrainHistory   []time.Time
+}
+
+func appendHistory(history *[]time.Time, t time.Time) {
+	if history == nil {
+		*history = make([]time.Time, 0, 5)
+	}
+
+	*history = append(*history, t)
+
+	if len(*history) > 5 {
+		*history = (*history)[1:]
+	}
+	return
+}
+
+func (p *PredictorHistory) AppendPredictorHistory(t time.Time) {
+	appendHistory(&p.PredictHistory, t)
+}
+
+func (p *PredictorHistory) AppendTrainHistory(t time.Time) {
+	appendHistory(&p.TrainHistory, t)
+}
+
 // AOMStatus defines the observed state of AOM
 type AOMStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
@@ -82,6 +111,8 @@ type AOMStatus struct {
 	// up or down
 	CollectorStatus string `json:"collector"`
 	CollectorMap    map[string]struct{}
+	// withModelKey
+	PredictorHistory map[string]PredictorHistory
 }
 
 //+kubebuilder:object:root=true

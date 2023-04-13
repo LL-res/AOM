@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/collector/prometheus_collector"
 	"github.com/LL-res/AOM/predictor"
@@ -99,12 +100,13 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 		for _, model := range m.Model {
 			param := predictor.Param{
-				ModelType:       model.Type,
+				// noModelKey 能唯一确定一个metric，也就是能唯一确定一个metric worker
+				// 而一个metric对应多个model，因为每个model对应一个predictor
+				// 故 WithModelKey能唯一确定一个predictor
+				WithModelKey:    fmt.Sprintf("%s/%s", m.NoModelKey(), model.Type),
 				MetricCollector: collect,
 				Model:           model,
-				// 此处考虑下沉到 collector中
-				Adress:         "",
-				ScaleTargetRef: instance.Spec.ScaleTargetRef,
+				ScaleTargetRef:  instance.Spec.ScaleTargetRef,
 			}
 			pred, err := predictor.NewPredictor(param)
 			if err != nil {
@@ -114,10 +116,8 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 	}
 
-	if err != nil {
-		return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
-	}
 	// 根据yaml中的时间配置，进行train，或是predict
+	//scheduler
 	//scaler 进行操作
 
 	return ctrl.Result{}, nil

@@ -2,6 +2,7 @@ package collector
 
 import (
 	"fmt"
+	"github.com/LL-res/AOM/utils"
 	"sync"
 	"time"
 )
@@ -12,34 +13,15 @@ type MetricSeries struct {
 	Length    int
 }
 
-var GlobalMetricCollectorMap *WorkerMap
+var GlobalMetricCollectorMap *utils.ConcurrentMap[MetricCollector]
 
-type WorkerMap struct {
-	data map[string]MetricCollector
+type WorkerMap[T any] struct {
+	data map[string]T
 	sync.RWMutex
 }
 
 func InitGlobalMap() {
-	GlobalMetricCollectorMap = &WorkerMap{
-		data: make(map[string]MetricCollector),
-	}
-}
-
-func (m *WorkerMap) Load(noModelKey string) (MetricCollector, bool) {
-	m.RLock()
-	defer m.RUnlock()
-	worker, ok := m.data[noModelKey]
-	return worker, ok
-}
-func (m *WorkerMap) Store(noModelKey string, worker MetricCollector) {
-	m.Lock()
-	defer m.Unlock()
-	m.data[noModelKey] = worker
-}
-func (m *WorkerMap) Delete(noModelKey string) {
-	m.Lock()
-	defer m.Unlock()
-	delete(m.data, noModelKey)
+	GlobalMetricCollectorMap = utils.NewConcurrentMap[MetricCollector]()
 }
 
 type Collector interface {

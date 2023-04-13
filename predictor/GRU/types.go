@@ -10,6 +10,7 @@ import (
 
 type GRU struct {
 	predictor.Base
+	withModelKey    string
 	model           automationv1.Model
 	collectorWorker collector.MetricCollector
 	readyToPredict  *atomic.Bool

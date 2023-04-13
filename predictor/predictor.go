@@ -6,18 +6,23 @@ import (
 	automationv1 "github.com/LL-res/AOM/api/v1"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/predictor/GRU"
+	"github.com/LL-res/AOM/utils"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 )
 
-type AlgorithmRunner interface {
-	RunAlgorithmWithValue(algorithmPath string, value string, timeout int) (string, error)
-}
 type Param struct {
-	ModelType       string
+	WithModelKey    string
 	MetricCollector collector.MetricCollector
 	Model           automationv1.Model
-	Adress          string
 	ScaleTargetRef  autoscalingv2.CrossVersionObjectReference
+}
+
+var (
+	PredictorModelMap *utils.ConcurrentMap[*automationv1.Model]
+)
+
+func Init() {
+	PredictorModelMap = utils.NewConcurrentMap[*automationv1.Model]()
 }
 
 // predictor is an interface providing methods for making a prediction based on a model, a time to predict and values
@@ -25,6 +30,7 @@ type Predictor interface {
 	Predict(ctx context.Context, aom *automationv1.AOM) ([]int32, error)
 	GetType() string
 	Train(ctx context.Context) error
+	Key() string
 }
 type Base struct {
 	MetricHistory []collector.Metric // 存储着全部
@@ -59,9 +65,14 @@ func (m *ModelPredict) Train(ctx context.Context) error {
 	return nil
 }
 func NewPredictor(param Param) (Predictor, error) {
-	switch param.ModelType {
+	switch param.Model.Type {
 	case automationv1.TypeGRU:
-		return GRU.New(param.MetricCollector, param.Model, param.Adress, param.ScaleTargetRef)
+		pred, err := GRU.New(param.MetricCollector, param.Model, param.ScaleTargetRef, param.WithModelKey)
+		if err != nil {
+			return nil, err
+		}
+		PredictorModelMap.Store(pred.Key(), &param.Model)
+		return pred, nil
 	default:
 		return nil, errors.New("unknown predictor")
 	}
