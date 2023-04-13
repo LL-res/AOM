@@ -8,6 +8,7 @@ import (
 	"github.com/LL-res/AOM/clients/k8s"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/predictor"
+	"go.uber.org/atomic"
 	"io"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,7 +35,7 @@ func New(collectorWorker collector.MetricCollector, model automationv1.Model, ad
 		},
 		model:           model,
 		collectorWorker: collectorWorker,
-		readyToPredict:  false,
+		readyToPredict:  atomic.NewBool(false),
 		address:         address,
 		ScaleTargetRef:  ScaleTargetRef,
 	}, nil
@@ -42,7 +43,7 @@ func New(collectorWorker collector.MetricCollector, model automationv1.Model, ad
 }
 
 func (g *GRU) Predict(ctx context.Context, aom *automationv1.AOM) ([]int32, error) {
-	if !g.readyToPredict {
+	if !g.readyToPredict.Load() {
 		return nil, errors.New("the model is not ready to predict")
 	}
 	// 如果worker中的数据量不足，直接返回
@@ -243,6 +244,6 @@ func (g *GRU) WaitAndUpdate(ctx context.Context) error {
 		log.Println(err)
 		return err
 	}
-	g.readyToPredict = resp.Trained
+	g.readyToPredict.Store(resp.Trained)
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	automationv1 "github.com/LL-res/AOM/api/v1"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/predictor"
+	"go.uber.org/atomic"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 )
 
@@ -11,7 +12,7 @@ type GRU struct {
 	predictor.Base
 	model           automationv1.Model
 	collectorWorker collector.MetricCollector
-	readyToPredict  bool
+	readyToPredict  *atomic.Bool
 	address         string
 	ScaleTargetRef  autoscalingv2.CrossVersionObjectReference
 }

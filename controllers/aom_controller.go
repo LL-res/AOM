@@ -20,6 +20,7 @@ import (
 	"context"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/collector/prometheus_collector"
+	"github.com/LL-res/AOM/predictor"
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sync"
@@ -84,12 +85,40 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	// TODO: validation
 
-	scaleTargetRef := instance.Spec.ScaleTargetRef
-	metricMap := make(map[string]struct{})
-	ctx = context.WithValue(ctx, metricMapKey, metricMap)
 	if err := checkCollector(ctx, instance); err != nil {
 		return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
 	}
+	//predictor 启动
+	//统计有多少个model，有多少个model起多少个predictor
+	predictors := make([]predictor.Predictor, 0)
+	for _, m := range instance.Spec.Metrics {
+		collect, ok := collector.GlobalMetricCollectorMap.Load(m.NoModelKey())
+		if !ok {
+			// TODO 此处暂时进行continue处理
+			continue
+		}
+		for _, model := range m.Model {
+			param := predictor.Param{
+				ModelType:       model.Type,
+				MetricCollector: collect,
+				Model:           model,
+				// 此处考虑下沉到 collector中
+				Adress:         "",
+				ScaleTargetRef: instance.Spec.ScaleTargetRef,
+			}
+			pred, err := predictor.NewPredictor(param)
+			if err != nil {
+				return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
+			}
+			predictors = append(predictors, pred)
+		}
+	}
+
+	if err != nil {
+		return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
+	}
+	// 根据yaml中的时间配置，进行train，或是predict
+	//scaler 进行操作
 
 	return ctrl.Result{}, nil
 }
@@ -128,9 +157,8 @@ func checkCollector(ctx context.Context, aom *automationv1.AOM) error {
 				toDelete = append(toDelete, k)
 			}
 		}
-		metricMap := ctx.Value(metricMapKey).(map[string]struct{})
 		for _, v := range toDelete {
-			delete(metricMap, v)
+			collector.GlobalMetricCollectorMap.Delete(v)
 		}
 		for _, v := range toAdd {
 			metricType := collector.MetricType{
@@ -142,6 +170,7 @@ func checkCollector(ctx context.Context, aom *automationv1.AOM) error {
 			if err != nil {
 				return err
 			}
+			collector.GlobalMetricCollectorMap.Store(v.NoModelKey(), worker)
 			go StartWorker(ctx, worker, aom)
 		}
 		// 更新status
@@ -161,22 +190,23 @@ func checkCollector(ctx context.Context, aom *automationv1.AOM) error {
 		return err
 	}
 
+	workers := make([]collector.MetricCollector, 0)
+
 	for _, metric := range aom.Spec.Metrics {
-		ctx.Value(metricMapKey).(map[string]struct{})[metric.NoModelKey()] = struct{}{}
-		pCollector.AddCustomMetrics(collector.MetricType{
+
+		metricType := collector.MetricType{
 			Name: metric.Name,
 			Unit: metric.Unit,
-		}, metric.Query)
-	}
-	targets := pCollector.ListMetricTypes()
-	workers := make([]collector.MetricCollector, 0)
-	for _, target := range targets {
-		worker, err := pCollector.CreateWorker(target)
+		}
+		pCollector.AddCustomMetrics(metricType, metric.Query)
+		worker, err := pCollector.CreateWorker(metricType)
 		if err != nil {
 			return err
 		}
+		collector.GlobalMetricCollectorMap.Store(metric.NoModelKey(), worker)
 		workers = append(workers, worker)
 	}
+
 	for _, worker := range workers {
 		go StartWorker(ctx, worker, aom)
 	}
@@ -190,7 +220,7 @@ func StartWorker(ctx context.Context, worker collector.MetricCollector, aom *aut
 	end := false
 	defer ticker.Stop()
 	for _ = range ticker.C {
-		if _, ok := ctx.Value(metricMapKey).(map[string]struct{})[worker.String()]; !ok || end {
+		if _, ok := collector.GlobalMetricCollectorMap.Load(worker.NoModelKey()); !ok || end {
 			break
 		}
 		select {

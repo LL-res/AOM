@@ -47,10 +47,10 @@ type Collector struct {
 	ScrapeInterval time.Duration `json:"scrapeInterval"`
 }
 type Metric struct {
-	Name  string `json:"name"`
-	Unit  string `json:"unit"`
-	Query string `json:"query"`
-	Model Model  `json:"model"`
+	Name  string  `json:"name"`
+	Unit  string  `json:"unit"`
+	Query string  `json:"query"`
+	Model []Model `json:"model"`
 }
 
 func (m Metric) NoModelKey() string {
@@ -64,9 +64,10 @@ type Model struct {
 type GRU struct {
 	// how far in second GRU will use to train
 	// +optional
-	TrainSize   int `json:"trainSize"`
-	LookBack    int `json:"lookBack"`
-	LookForward int `json:"lookForward"`
+	TrainSize   int    `json:"trainSize"`
+	LookBack    int    `json:"lookBack"`
+	LookForward int    `json:"lookForward"`
+	Address     string `json:"address"`
 
 	//暂时把它当作，需要维持在的值
 	ScaleUpThreshold float64 `json:"scaleUpThreshold"`
