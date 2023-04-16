@@ -1,5 +1,6 @@
 package v1
 
 const (
-	TypeGRU = "GRU"
+	TypeGRU  = "GRU"
+	TypeLSTM = "LSTM"
 )

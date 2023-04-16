@@ -58,9 +58,10 @@ func (m Metric) NoModelKey() string {
 }
 
 type Model struct {
-	Type string // GRU LSTM
-	GRU  GRU
-	LSTM LSTM
+	Type            string           // GRU LSTM
+	PredcitInterval *metav1.Duration `json:"predcitInterval"`
+	GRU             GRU
+	LSTM            LSTM
 }
 type LSTM struct {
 }
@@ -96,6 +97,20 @@ func appendHistory(history *[]time.Time, t time.Time) {
 	return
 }
 
+func (p *PredictorHistory) CanTrain(now time.Time, interval time.Duration) bool {
+	if p.TrainHistory == nil || len(p.TrainHistory) == 0 {
+		return true
+	}
+	return p.TrainHistory[len(p.TrainHistory)-1].Add(interval).Before(now)
+}
+
+func (p *PredictorHistory) CanPredict(now time.Time, interval time.Duration) bool {
+	if p.PredictHistory == nil || len(p.PredictHistory) == 0 {
+		return true
+	}
+	return p.PredictHistory[len(p.PredictHistory)-1].Add(interval).Before(now)
+}
+
 func (p *PredictorHistory) AppendPredictorHistory(t time.Time) {
 	appendHistory(&p.PredictHistory, t)
 }
@@ -112,7 +127,7 @@ type AOMStatus struct {
 	CollectorStatus string `json:"collector"`
 	CollectorMap    map[string]struct{}
 	// withModelKey
-	PredictorHistory map[string]PredictorHistory
+	PredictorHistory map[string]*PredictorHistory
 }
 
 //+kubebuilder:object:root=true
