@@ -17,8 +17,9 @@ var (
 )
 
 type Client struct {
-	Config    *rest.Config
-	ClientSet *kubernetes.Clientset
+	Config      *rest.Config
+	ClientSet   *kubernetes.Clientset
+	ScaleGetter scale.ScalesGetter
 }
 
 func NewClient() error {
@@ -39,9 +40,23 @@ func newClient() error {
 		log.Println(err)
 		return err
 	}
+	apiGroupResources, err := restmapper.GetAPIGroupResources(clientSet)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+	mapper := restmapper.NewDiscoveryRESTMapper(apiGroupResources)
+	resolver := scale.NewDiscoveryScaleKindResolver(clientSet)
+
+	scalesGetter, err := scale.NewForConfig(conf, mapper, dynamic.LegacyAPIPathResolverFunc, resolver)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
 	GlobalClient = &Client{
-		Config:    conf,
-		ClientSet: clientSet,
+		Config:      conf,
+		ClientSet:   clientSet,
+		ScaleGetter: scalesGetter,
 	}
 	return nil
 }
