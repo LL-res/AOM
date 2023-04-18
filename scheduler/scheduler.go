@@ -5,8 +5,8 @@ import (
 	"errors"
 	automationv1 "github.com/LL-res/AOM/api/v1"
 	"github.com/LL-res/AOM/predictor"
-	"log"
 	"time"
+	"log"
 )
 
 type Scheduler struct {
@@ -43,6 +43,7 @@ func (s *Scheduler) HandlePredictors(ctx context.Context, predictors []predictor
 			conf.needTrain = true
 		}
 		now := time.Now()
+
 		replicas := make([]int32, 0)
 		totalReplicas := make([][]int32,0)
 		if history.CanPredict(now, conf.predictInterval) {
@@ -60,6 +61,7 @@ func (s *Scheduler) HandlePredictors(ctx context.Context, predictors []predictor
 		}
 
 		// predictor可考虑只返回预测指标，把计算副本数等部分拆出交给scaler来做
+
 		if history.CanTrain(now, conf.trainInterval) {
 			err := p.Train(ctx)
 			if err != nil {
