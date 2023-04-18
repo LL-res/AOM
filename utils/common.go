@@ -1,6 +1,9 @@
 package utils
 
-import "sync"
+import (
+	"golang.org/x/exp/constraints"
+	"sync"
+)
 
 type ConcurrentMap[T any] struct {
 	data map[string]T
@@ -27,4 +30,30 @@ func NewConcurrentMap[T any]() *ConcurrentMap[T] {
 	return &ConcurrentMap[T]{
 		data: make(map[string]T),
 	}
+}
+
+func Max[T constraints.Ordered](x ...T) T {
+	if len(x) == 1 {
+		return x[0]
+	}
+	max := x[0]
+	for i := 1; i < len(x); i++ {
+		if x[i] > max {
+			max = x[i]
+		}
+	}
+	return max
+}
+
+func Min[T constraints.Ordered](x ...T) T {
+	if len(x) == 1 {
+		return x[0]
+	}
+	min := x[0]
+	for i := 1; i < len(x); i++ {
+		if x[i] < min {
+			min = x[i]
+		}
+	}
+	return min
 }

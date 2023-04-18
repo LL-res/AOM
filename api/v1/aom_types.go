@@ -18,6 +18,7 @@ package v1
 
 import (
 	"fmt"
+	"github.com/LL-res/AOM/utils"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"time"
@@ -127,7 +128,7 @@ type AOMStatus struct {
 	CollectorStatus string `json:"collector"`
 	CollectorMap    map[string]struct{}
 	// withModelKey
-	PredictorHistory map[string]*PredictorHistory
+	PredictorHistory utils.ConcurrentMap[*PredictorHistory]
 }
 
 //+kubebuilder:object:root=true

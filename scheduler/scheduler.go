@@ -5,8 +5,8 @@ import (
 	"errors"
 	automationv1 "github.com/LL-res/AOM/api/v1"
 	"github.com/LL-res/AOM/predictor"
-	"time"
 	"log"
+	"time"
 )
 
 type Scheduler struct {
@@ -23,7 +23,7 @@ func (s *Scheduler) HandlePredictors(ctx context.Context, predictors []predictor
 	// 生成一个map，记录predictor与model的映射关系
 	// status 里应该记录历史数据，与时间戳，以检查是否需要进行操作
 	for _, p := range predictors {
-		history, ok := s.aom.Status.PredictorHistory[p.Key()]
+		history, ok := s.aom.Status.PredictorHistory.Load(p.Key())
 		if !ok {
 			return errors.New("history not find")
 		}
@@ -45,7 +45,7 @@ func (s *Scheduler) HandlePredictors(ctx context.Context, predictors []predictor
 		now := time.Now()
 
 		replicas := make([]int32, 0)
-		totalReplicas := make([][]int32,0)
+		totalReplicas := make([][]int32, 0)
 		if history.CanPredict(now, conf.predictInterval) {
 			var err error
 			replicas, err = p.Predict(ctx, s.aom)
@@ -53,10 +53,11 @@ func (s *Scheduler) HandlePredictors(ctx context.Context, predictors []predictor
 				log.Println(err)
 				//此时仅对err进行打印
 			} else {
-				s.aom.Status.PredictorHistory[p.Key()].AppendPredictorHistory(now)
-				temp := make([]int32,len(replicas))
-				copy(temp,replicas)
-				totalReplicas = append(totalReplicas,temp)
+				statusHistory, _ := s.aom.Status.PredictorHistory.Load(p.Key())
+				statusHistory.AppendPredictorHistory(now)
+				temp := make([]int32, len(replicas))
+				copy(temp, replicas)
+				totalReplicas = append(totalReplicas, temp)
 			}
 		}
 
@@ -72,8 +73,3 @@ func (s *Scheduler) HandlePredictors(ctx context.Context, predictors []predictor
 	}
 
 }
-type strategy interface{
-	calculate([][]int32)int32
-}
-type
-func calculateReplicas(ctx context.Context,strategy func([][]int32)[]int32)
