@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	automationv1 "github.com/LL-res/AOM/api/v1"
+	"github.com/LL-res/AOM/clients/k8s"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/predictor"
+	"github.com/LL-res/AOM/utils"
 	"go.uber.org/atomic"
 	"io"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	"net"
 	"os"
+	"time"
 
 	"log"
 )
@@ -41,7 +44,7 @@ func New(collectorWorker collector.MetricCollector, model automationv1.Model, Sc
 
 }
 
-func (g *GRU) Predict(ctx context.Context, aom *automationv1.AOM) (predictor.PredictResult, error) {
+func (g *GRU) Predict(ctx context.Context, aom *automationv1.AOM) (result predictor.PredictResult, err error) {
 	if !g.readyToPredict.Load() {
 		return predictor.PredictResult{}, errors.New("the model is not ready to predict")
 	}
@@ -62,55 +65,35 @@ func (g *GRU) Predict(ctx context.Context, aom *automationv1.AOM) (predictor.Pre
 		LookBack:       g.model.GRU.LookBack,
 		LookForward:    g.model.GRU.LookForward,
 	}
-	reqJson, err := json.Marshal(req)
+	body, err := json.Marshal(req)
 	if err != nil {
 		return predictor.PredictResult{}, err
 	}
-	conn, err := net.Dial("unix", g.address)
+	socketReq := &utils.SocketReq{}
+	socketReq.SetAddress(g.address).SetBody(string(body)).SetNetwork("unix")
+	socketRsp, err := utils.SocketSendReq(*socketReq)
 	if err != nil {
 		return predictor.PredictResult{}, err
-	}
-	defer func() {
-		err := conn.Close()
-		if err != nil {
-			log.Println(err)
-		}
-	}()
-	// 客户端发送一次的数据接收到响应后断开连接
-	_, err = conn.Write(reqJson)
-
-	if err != nil {
-		return predictor.PredictResult{}, err
-	}
-	bufSize := 1024
-	buf := make([]byte, bufSize)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return predictor.PredictResult{}, err
-	}
-	responseJson := string(buf[:n])
-
-	for n == bufSize {
-		n, err = conn.Read(buf)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return predictor.PredictResult{}, err
-		}
-		responseJson += string(buf[:n])
 	}
 	response := Response{}
-	err = json.Unmarshal([]byte(responseJson), &response)
+	err = json.Unmarshal([]byte(socketRsp), &response)
 	if err != nil {
 		return predictor.PredictResult{}, err
 	}
 	if !response.Trained {
 		return predictor.PredictResult{}, errors.New("the model is not ready to predict")
 	}
-	result := predictor.PredictResult{}
+	result.StartMetric = predictHistory[len(predictHistory)-1]
+	result.StartReplica, err = k8s.GlobalClient.GetReplica(aom.Namespace, aom.Spec.ScaleTargetRef)
 
-	return response.Prediction, nil
+	if err != nil {
+		return predictor.PredictResult{}, err
+	}
+	// 更新amo的status
+	statusHistory, _ := aom.Status.PredictorHistory.Load(g.withModelKey)
+	statusHistory.AppendPredictorHistory(time.Now())
+
+	return
 }
 
 func (g *GRU) GetType() string {

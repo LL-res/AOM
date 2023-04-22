@@ -54,7 +54,32 @@ func GetObjReplica(metricReplica [][]int32, strategy MetricStrategy) []int32 {
 func GetScaleReplica(objReplicaSet []int32, strategy ObjStrategy) int32 {
 	return strategy(objReplicaSet)
 }
+func (s *Scaler) UpTo(replica int32) error {
+	curReplica, err := k8s.GlobalClient.GetReplica(s.aom.Namespace, s.aom.Spec.ScaleTargetRef)
+	if err != nil {
+		return err
+	}
+	if curReplica >= replica {
+		return errors.New("target replica num is smaller than the current")
+	}
+	err = k8s.GlobalClient.SetReplica(s.aom.Namespace, s.aom.Spec.ScaleTargetRef, replica)
+	if err != nil {
+		return err
+	}
+	return nil
 
-func (s *Scaler) CalculateReplica(baseStrategy BaseStrategy, modelStrategy ModelStrategy, metricStrategy MetricStrategy, objStrategy ObjStrategy) {
-
+}
+func (s *Scaler) DownTo(replica int32) error {
+	curReplica, err := k8s.GlobalClient.GetReplica(s.aom.Namespace, s.aom.Spec.ScaleTargetRef)
+	if err != nil {
+		return err
+	}
+	if curReplica <= replica {
+		return errors.New("target replica num is bigger than the current")
+	}
+	err = k8s.GlobalClient.SetReplica(s.aom.Namespace, s.aom.Spec.ScaleTargetRef, replica)
+	if err != nil {
+		return err
+	}
+	return nil
 }

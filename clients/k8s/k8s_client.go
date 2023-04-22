@@ -1,6 +1,10 @@
 package k8s
 
 import (
+	"context"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -76,4 +80,27 @@ func (c *Client) NewScaleClient() (scale.ScalesGetter, error) {
 	}
 	return scalesGetter, nil
 
+}
+func (c *Client) GetReplica(namespace string, scaleTargetRef autoscalingv2.CrossVersionObjectReference) (int32, error) {
+	scaleObj, err := c.ScaleGetter.Scales(namespace).Get(context.TODO(), schema.GroupResource{
+		Group:    scaleTargetRef.APIVersion,
+		Resource: scaleTargetRef.Kind,
+	}, scaleTargetRef.Name, metav1.GetOptions{})
+	if err != nil {
+		return 0, err
+	}
+	return scaleObj.Spec.Replicas, nil
+}
+func (c *Client) SetReplica(namespace string, scaleTargetRef autoscalingv2.CrossVersionObjectReference, replica int32) error {
+	scaleObj, err := GlobalClient.ScaleGetter.Scales(namespace).Get(context.TODO(), schema.GroupResource{
+		Group:    scaleTargetRef.APIVersion,
+		Resource: scaleTargetRef.Kind,
+	}, scaleTargetRef.Name, metav1.GetOptions{})
+	scaleObj.Spec.Replicas = replica
+	_, err = GlobalClient.ScaleGetter.Scales(namespace).Update(context.TODO(), schema.GroupResource{
+		Group:    scaleTargetRef.APIVersion,
+		Resource: scaleTargetRef.Kind,
+	}, scaleObj, metav1.UpdateOptions{})
+
+	return err
 }
