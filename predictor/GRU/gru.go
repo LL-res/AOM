@@ -5,14 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	automationv1 "github.com/LL-res/AOM/api/v1"
-	"github.com/LL-res/AOM/clients/k8s"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/predictor"
 	"go.uber.org/atomic"
 	"io"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"net"
 	"os"
 
@@ -44,13 +41,13 @@ func New(collectorWorker collector.MetricCollector, model automationv1.Model, Sc
 
 }
 
-func (g *GRU) Predict(ctx context.Context, aom *automationv1.AOM) ([]int32, error) {
+func (g *GRU) Predict(ctx context.Context, aom *automationv1.AOM) (predictor.PredictResult, error) {
 	if !g.readyToPredict.Load() {
-		return nil, errors.New("the model is not ready to predict")
+		return predictor.PredictResult{}, errors.New("the model is not ready to predict")
 	}
 	// 如果worker中的数据量不足，直接返回
 	if g.collectorWorker.DataCap() < g.model.GRU.LookForward {
-		return nil, errors.New("no sufficient data to predict")
+		return predictor.PredictResult{}, errors.New("no sufficient data to predict")
 	}
 	tempData := g.collectorWorker.Send()
 	// with timestamp
@@ -67,11 +64,11 @@ func (g *GRU) Predict(ctx context.Context, aom *automationv1.AOM) ([]int32, erro
 	}
 	reqJson, err := json.Marshal(req)
 	if err != nil {
-		return nil, err
+		return predictor.PredictResult{}, err
 	}
 	conn, err := net.Dial("unix", g.address)
 	if err != nil {
-		return nil, err
+		return predictor.PredictResult{}, err
 	}
 	defer func() {
 		err := conn.Close()
@@ -83,13 +80,13 @@ func (g *GRU) Predict(ctx context.Context, aom *automationv1.AOM) ([]int32, erro
 	_, err = conn.Write(reqJson)
 
 	if err != nil {
-		return nil, err
+		return predictor.PredictResult{}, err
 	}
 	bufSize := 1024
 	buf := make([]byte, bufSize)
 	n, err := conn.Read(buf)
 	if err != nil {
-		return nil, err
+		return predictor.PredictResult{}, err
 	}
 	responseJson := string(buf[:n])
 
@@ -99,41 +96,21 @@ func (g *GRU) Predict(ctx context.Context, aom *automationv1.AOM) ([]int32, erro
 			break
 		}
 		if err != nil {
-			return nil, err
+			return predictor.PredictResult{}, err
 		}
 		responseJson += string(buf[:n])
 	}
 	response := Response{}
 	err = json.Unmarshal([]byte(responseJson), &response)
 	if err != nil {
-		return nil, err
+		return predictor.PredictResult{}, err
 	}
 	if !response.Trained {
-		return nil, errors.New("the model is not ready to predict")
+		return predictor.PredictResult{}, errors.New("the model is not ready to predict")
 	}
+	result := predictor.PredictResult{}
 
-	scaleGetter, err := k8s.GlobalClient.NewScaleClient()
-	if err != nil {
-		return nil, err
-	}
-	scaleObj, err := scaleGetter.Scales(aom.Namespace).Get(ctx, schema.GroupResource{
-		Group:    aom.Spec.ScaleTargetRef.APIVersion,
-		Resource: aom.Spec.ScaleTargetRef.Kind,
-	}, aom.Spec.ScaleTargetRef.Name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-	//通过预测指标算出需要的副本数
-	currentReplicas := scaleObj.Spec.Replicas
-	targetReplicasList := make([]int32, 0)
-
-	for _, v := range response.Prediction {
-		targetReplicas := int32(v/g.model.GRU.ScaleUpThreshold) * currentReplicas
-		currentReplicas = targetReplicas
-		targetReplicasList = append(targetReplicasList, targetReplicas)
-	}
-
-	return targetReplicasList, nil
+	return response.Prediction, nil
 }
 
 func (g *GRU) GetType() string {

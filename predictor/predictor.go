@@ -28,7 +28,7 @@ func Init() {
 
 // predictor is an interface providing methods for making a prediction based on a model, a time to predict and values
 type Predictor interface {
-	Predict(ctx context.Context, aom *automationv1.AOM) ([]int32, error)
+	Predict(ctx context.Context, aom *automationv1.AOM) (PredictResult, error)
 	GetType() string
 	Train(ctx context.Context) error
 	Key() string
@@ -42,10 +42,15 @@ type Base struct {
 type ModelPredict struct {
 	predictors []Predictor
 }
+type PredictResult struct {
+	StartMetric   float64
+	StartReplica  int32
+	PredictMetric []float64
+}
 
-func (m *ModelPredict) Predict(ctx context.Context, aom *automationv1.AOM) ([]int32, error) {
+func (m *ModelPredict) Predict(ctx context.Context, aom *automationv1.AOM) (PredictResult, error) {
 	//此处存放着所有模型预测出的结果
-	targetReplicas := make([][]int32, 0)
+	targetReplicas := make([][]float64, 0)
 	for _, predictor := range m.predictors {
 		res, err := predictor.Predict(ctx, aom)
 		if err != nil {
@@ -60,7 +65,7 @@ func (m *ModelPredict) Predict(ctx context.Context, aom *automationv1.AOM) ([]in
 
 // GetType returns the type of the ModelPredict, "Model"
 func (m *ModelPredict) GetType() string {
-	return "Models"
+	return "Models for one metric"
 }
 func (m *ModelPredict) Train(ctx context.Context) error {
 	return nil

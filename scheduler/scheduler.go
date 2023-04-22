@@ -54,6 +54,7 @@ func (s *Scheduler) HandlePredictors(ctx context.Context, predictors []predictor
 				//此时仅对err进行打印
 			} else {
 				statusHistory, _ := s.aom.Status.PredictorHistory.Load(p.Key())
+				// 添加新的历史数据应放在刚刚结束动作的代码块处
 				statusHistory.AppendPredictorHistory(now)
 				temp := make([]int32, len(replicas))
 				copy(temp, replicas)
