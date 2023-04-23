@@ -39,19 +39,19 @@ type AOMSpec struct {
 
 	// +kubebuilder:validation:Minimum=1
 	// +optional
-	MaxReplicas int32     `json:"maxReplicas"`
-	Collector   Collector `json:"collector"`
-	Metrics     []Metric  `json:"metrics"`
+	MaxReplicas int32              `json:"maxReplicas"`
+	Collector   Collector          `json:"collector"`
+	Metrics     map[Metric][]Model `json:"metrics"`
 }
 type Collector struct {
 	Address        string        `json:"address"`
 	ScrapeInterval time.Duration `json:"scrapeInterval"`
 }
 type Metric struct {
-	Name  string  `json:"name"`
-	Unit  string  `json:"unit"`
-	Query string  `json:"query"`
-	Model []Model `json:"model"`
+	Target float64 `json:"target"`
+	Name   string  `json:"name"`
+	Unit   string  `json:"unit"`
+	Query  string  `json:"query"`
 }
 
 func (m Metric) NoModelKey() string {

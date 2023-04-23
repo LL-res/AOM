@@ -9,6 +9,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+var (
+	GlobalScaler *Scaler
+)
+
 type Scaler struct {
 	aom      *automationv1.AOM
 	recvChan chan []float64
@@ -19,6 +23,11 @@ func (s *Scaler) RecvChan() chan []float64 {
 		s.recvChan = make(chan []float64)
 	}
 	return s.recvChan
+}
+func Init(aom *automationv1.AOM) {
+	if GlobalScaler == nil {
+		GlobalScaler = &Scaler{aom: aom}
+	}
 }
 
 // 每个model对应一个
@@ -41,17 +50,17 @@ func (s *Scaler) GetModelReplica(startMetric float64, strategy BaseStrategy, tar
 }
 
 // 获取每个metric对应的预测样本数
-func GetMetricReplica(modelReplica [][]int32, strategy ModelStrategy) []int32 {
+func (s *Scaler) GetMetricReplica(modelReplica [][]int32, strategy ModelStrategy) []int32 {
 	return strategy(modelReplica)
 }
 
 // 获取到了被检测对象之后时间端的样本数
 // 之后的操作应该是从这个切片中进行选取，选取一个或是多个合适的值，作为在当前时刻要进行的扩缩容副本数
-func GetObjReplica(metricReplica [][]int32, strategy MetricStrategy) []int32 {
+func (s *Scaler) GetObjReplica(metricReplica [][]int32, strategy MetricStrategy) []int32 {
 	return strategy(metricReplica)
 }
 
-func GetScaleReplica(objReplicaSet []int32, strategy ObjStrategy) int32 {
+func (s *Scaler) GetScaleReplica(objReplicaSet []int32, strategy ObjStrategy) int32 {
 	return strategy(objReplicaSet)
 }
 func (s *Scaler) UpTo(replica int32) error {

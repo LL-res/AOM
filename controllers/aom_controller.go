@@ -22,6 +22,7 @@ import (
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/collector/prometheus_collector"
 	"github.com/LL-res/AOM/predictor"
+	"github.com/LL-res/AOM/scheduler"
 	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sync"
@@ -85,19 +86,20 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 
 	// TODO: validation
-
+	// 检查并启动collector
 	if err := checkCollector(ctx, instance); err != nil {
 		return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
 	}
 	//predictor 启动
 	//统计有多少个model，有多少个model起多少个predictor
-	predictors := make([]predictor.Predictor, 0)
+	predictors := make([][]predictor.Predictor, 0)
 	for _, m := range instance.Spec.Metrics {
 		collect, ok := collector.GlobalMetricCollectorMap.Load(m.NoModelKey())
 		if !ok {
 			// TODO 此处暂时进行continue处理
 			continue
 		}
+		pForOneMetric := make([]predictor.Predictor, 0)
 		for _, model := range m.Model {
 			param := predictor.Param{
 				// noModelKey 能唯一确定一个metric，也就是能唯一确定一个metric worker
@@ -112,8 +114,17 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			if err != nil {
 				return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
 			}
-			predictors = append(predictors, pred)
+			pForOneMetric = append(pForOneMetric, pred)
 		}
+		predictors = append(predictors, pForOneMetric)
+	}
+	// 将这些predictor交给scheduler进行调度
+	// 考虑不同的instance 对应不同的scheduler
+	scheduler.Init(instance)
+	err = scheduler.GlobalScheduler.HandlePredictors(ctx, predictors)
+	if err != nil {
+		logger.Error(err, "scheduler failed")
+		return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
 	}
 
 	// 根据yaml中的时间配置，进行train，或是predict
