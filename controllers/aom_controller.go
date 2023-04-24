@@ -84,7 +84,6 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		logger.Error(err, "failed to get AOM")
 		return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
 	}
-
 	// TODO: validation
 	// 检查并启动collector
 	if err := checkCollector(ctx, instance); err != nil {
@@ -92,20 +91,20 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 	//predictor 启动
 	//统计有多少个model，有多少个model起多少个predictor
-	predictors := make([][]predictor.Predictor, 0)
-	for _, m := range instance.Spec.Metrics {
-		collect, ok := collector.GlobalMetricCollectorMap.Load(m.NoModelKey())
+	predictors := make(map[automationv1.Metric][]predictor.Predictor, 0)
+	for mtc, mdls := range instance.Spec.Metrics {
+		collect, ok := collector.GlobalMetricCollectorMap.Load(mtc.NoModelKey())
 		if !ok {
 			// TODO 此处暂时进行continue处理
 			continue
 		}
 		pForOneMetric := make([]predictor.Predictor, 0)
-		for _, model := range m.Model {
+		for _, model := range mdls {
 			param := predictor.Param{
 				// noModelKey 能唯一确定一个metric，也就是能唯一确定一个metric worker
 				// 而一个metric对应多个model，因为每个model对应一个predictor
 				// 故 WithModelKey能唯一确定一个predictor
-				WithModelKey:    fmt.Sprintf("%s/%s", m.NoModelKey(), model.Type),
+				WithModelKey:    fmt.Sprintf("%s/%s", mtc.NoModelKey(), model.Type),
 				MetricCollector: collect,
 				Model:           model,
 				ScaleTargetRef:  instance.Spec.ScaleTargetRef,
@@ -116,8 +115,9 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			}
 			pForOneMetric = append(pForOneMetric, pred)
 		}
-		predictors = append(predictors, pForOneMetric)
+		predictors[mtc] = pForOneMetric
 	}
+
 	// 将这些predictor交给scheduler进行调度
 	// 考虑不同的instance 对应不同的scheduler
 	scheduler.Init(instance)
@@ -126,10 +126,6 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		logger.Error(err, "scheduler failed")
 		return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
 	}
-
-	// 根据yaml中的时间配置，进行train，或是predict
-	//scheduler
-	//scaler 进行操作
 
 	return ctrl.Result{}, nil
 }
@@ -149,17 +145,17 @@ func checkCollector(ctx context.Context, aom *automationv1.AOM) error {
 		toAdd := make([]automationv1.Metric, 0)
 
 		// spec中存在，但map中不存在，进行更新
-		for _, v := range aom.Spec.Metrics {
-			if _, ok := aom.Status.CollectorMap[v.NoModelKey()]; !ok {
-				toAdd = append(toAdd, v)
+		for metric := range aom.Spec.Metrics {
+			if _, ok := aom.Status.CollectorMap[metric.NoModelKey()]; !ok {
+				toAdd = append(toAdd, metric)
 			}
 
 		}
 		// map 中存在但 spec中不存在，进行删除
 		for k := range aom.Status.CollectorMap {
 			exist := false
-			for _, v := range aom.Spec.Metrics {
-				if v.NoModelKey() == k {
+			for metric := range aom.Spec.Metrics {
+				if metric.NoModelKey() == k {
 					exist = true
 					break
 				}
@@ -186,8 +182,8 @@ func checkCollector(ctx context.Context, aom *automationv1.AOM) error {
 		}
 		// 更新status
 		aom.Status.CollectorMap = make(map[string]struct{})
-		for _, v := range aom.Spec.Metrics {
-			aom.Status.CollectorMap[v.NoModelKey()] = struct{}{}
+		for metric := range aom.Spec.Metrics {
+			aom.Status.CollectorMap[metric.NoModelKey()] = struct{}{}
 		}
 		return nil
 	}
@@ -203,7 +199,7 @@ func checkCollector(ctx context.Context, aom *automationv1.AOM) error {
 
 	workers := make([]collector.MetricCollector, 0)
 
-	for _, metric := range aom.Spec.Metrics {
+	for metric := range aom.Spec.Metrics {
 
 		metricType := collector.MetricType{
 			Name: metric.Name,
