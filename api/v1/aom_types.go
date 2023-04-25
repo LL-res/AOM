@@ -48,10 +48,15 @@ type Collector struct {
 	ScrapeInterval time.Duration `json:"scrapeInterval"`
 }
 type Metric struct {
-	Target float64 `json:"target"`
-	Name   string  `json:"name"`
-	Unit   string  `json:"unit"`
-	Query  string  `json:"query"`
+	ScaleDownConf ScaleDownConf `json:"scaleDownConf"`
+	Target        float64       `json:"target"`
+	Name          string        `json:"name"`
+	Unit          string        `json:"unit"`
+	Query         string        `json:"query"`
+}
+type ScaleDownConf struct {
+	Threshold float64       `json:"threshold"`
+	Duration  time.Duration `json:"duration"`
 }
 
 func (m Metric) NoModelKey() string {
@@ -125,10 +130,16 @@ type AOMStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 	// up or down
-	CollectorStatus string `json:"collector"`
-	CollectorMap    map[string]struct{}
+	CollectorMap     map[string]chan struct{} `json:"-"`
+	StatusCollectors []StatusCollector        `json:"collectors"`
 	// withModelKey
 	PredictorHistory utils.ConcurrentMap[*PredictorHistory]
+	Generation       int64 `json:"generation"`
+}
+type StatusCollector struct {
+	Name       string `json:"name,omitempty"`
+	Unit       string `json:"unit,omitempty"`
+	Expression string `json:"expression,omitempty"`
 }
 
 //+kubebuilder:object:root=true

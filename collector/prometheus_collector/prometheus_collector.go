@@ -4,9 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	automationv1 "github.com/LL-res/AOM/api/v1"
 	"github.com/LL-res/AOM/collector"
-	"log"
-
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
@@ -21,8 +20,8 @@ type Promc struct {
 }
 
 func New() collector.Collector {
-	metricQL := make(map[collector.MetricType]string, 0)
-	cpuAVG := collector.MetricType{
+	metricQL := make(map[automationv1.Metric]string, 0)
+	cpuAVG := automationv1.Metric{
 		Name: "avg_node_cpu_usage",
 		Unit: "%",
 	}
@@ -37,7 +36,6 @@ func (p *Promc) SetServerAddress(url string) error {
 		Address: p.ServerAddress,
 	})
 	if err != nil {
-		log.Println(err)
 		return err
 	}
 	p.client = client
@@ -45,19 +43,20 @@ func (p *Promc) SetServerAddress(url string) error {
 	return nil
 }
 
-func (p *Promc) ListMetricTypes() []collector.MetricType {
-	result := make([]collector.MetricType, 0, len(p.MetricQL))
-	for k := range p.MetricQL {
-		result = append(result, k)
+func (p *Promc) ListMetricTypes() []automationv1.Metric {
+	result := make([]automationv1.Metric, 0, len(p.MetricQL))
+
+	for m := range p.MetricQL {
+		result = append(result, m)
 	}
 	return result
 }
 
-func (p *Promc) AddCustomMetrics(metricType collector.MetricType, query string) {
-	p.MetricQL[metricType] = query
+func (p *Promc) AddCustomMetrics(metricType automationv1.Metric) {
+	p.MetricQL[metricType] = metricType.Query
 }
 
-func (p *Promc) CreateWorker(MetricType collector.MetricType) (collector.MetricCollector, error) {
+func (p *Promc) CreateWorker(MetricType automationv1.Metric) (collector.MetricCollector, error) {
 	promql, ok := p.MetricQL[MetricType]
 	if !ok {
 		return nil, errors.New("undefined metric type")

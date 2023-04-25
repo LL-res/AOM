@@ -2,6 +2,7 @@ package collector
 
 import (
 	"fmt"
+	automationv1 "github.com/LL-res/AOM/api/v1"
 	"github.com/LL-res/AOM/utils"
 	"sync"
 	"time"
@@ -26,9 +27,9 @@ func InitGlobalMap() {
 
 type Collector interface {
 	SetServerAddress(url string) error
-	ListMetricTypes() []MetricType
-	AddCustomMetrics(metric MetricType, query string)
-	CreateWorker(MetricType MetricType) (MetricCollector, error)
+	ListMetricTypes() []automationv1.Metric
+	AddCustomMetrics(metric automationv1.Metric)
+	CreateWorker(MetricType automationv1.Metric) (MetricCollector, error)
 }
 type MetricCollector interface {
 	Collect() error
@@ -38,7 +39,7 @@ type MetricCollector interface {
 }
 type CollectorBase struct {
 	//key: the name of  supported metric type,value: the promql to get key metric type
-	MetricQL map[MetricType]string
+	MetricQL map[automationv1.Metric]string
 	//server url
 	ServerAddress string
 }

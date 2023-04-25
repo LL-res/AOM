@@ -21,9 +21,9 @@ import (
 	"fmt"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/collector/prometheus_collector"
+	"github.com/LL-res/AOM/log"
 	"github.com/LL-res/AOM/predictor"
 	"github.com/LL-res/AOM/scheduler"
-	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sync"
 	"time"
@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	automationv1 "github.com/LL-res/AOM/api/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -46,7 +45,6 @@ const (
 var (
 	promcOnce  sync.Once
 	pCollector collector.Collector
-	logger     logr.Logger
 )
 
 // AOMReconciler reconciles a AOM object
@@ -70,30 +68,30 @@ type AOMReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 
-	logger := log.FromContext(ctx)
+	logger := log.Logger.WithName("reconcile")
 
 	instance := &automationv1.AOM{}
 	err := r.Client.Get(ctx, req.NamespacedName, instance)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-			// Request object not found, could have been deleted after reconcile request.
-			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
-			// Return and don't requeue
+			logger.Info("instance deleted")
 			return reconcile.Result{}, nil
 		}
-		logger.Error(err, "failed to get AOM")
+		logger.Error(err, "failed to get instance")
 		return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
 	}
-	// TODO: validation
 	// 检查并启动collector
-	if err := checkCollector(ctx, instance); err != nil {
+	handler := NewHandler(instance, r)
+
+	if err := handler.Handle(ctx); err != nil {
 		return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
 	}
+
 	//predictor 启动
 	//统计有多少个model，有多少个model起多少个predictor
 	predictors := make(map[automationv1.Metric][]predictor.Predictor, 0)
-	for mtc, mdls := range instance.Spec.Metrics {
-		collect, ok := collector.GlobalMetricCollectorMap.Load(mtc.NoModelKey())
+	for mtrc, mdls := range instance.Spec.Metrics {
+		collect, ok := collector.GlobalMetricCollectorMap.Load(mtrc.NoModelKey())
 		if !ok {
 			// TODO 此处暂时进行continue处理
 			continue
@@ -104,7 +102,7 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				// noModelKey 能唯一确定一个metric，也就是能唯一确定一个metric worker
 				// 而一个metric对应多个model，因为每个model对应一个predictor
 				// 故 WithModelKey能唯一确定一个predictor
-				WithModelKey:    fmt.Sprintf("%s/%s", mtc.NoModelKey(), model.Type),
+				WithModelKey:    fmt.Sprintf("%s/%s", mtrc.NoModelKey(), model.Type),
 				MetricCollector: collect,
 				Model:           model,
 				ScaleTargetRef:  instance.Spec.ScaleTargetRef,
@@ -115,7 +113,7 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			}
 			pForOneMetric = append(pForOneMetric, pred)
 		}
-		predictors[mtc] = pForOneMetric
+		predictors[mtrc] = pForOneMetric
 	}
 
 	// 将这些predictor交给scheduler进行调度
@@ -136,93 +134,8 @@ func (r *AOMReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&automationv1.AOM{}).
 		Complete(r)
 }
-func checkCollector(ctx context.Context, aom *automationv1.AOM) error {
-	logger := log.FromContext(ctx)
-	//如果collector已经启动则进行更新删除等检查
-	if aom.Status.CollectorStatus == "up" {
-		// 其中的元素是格式化之后的metric，格式为: name/unit/query
-		toDelete := make([]string, 0)
-		toAdd := make([]automationv1.Metric, 0)
 
-		// spec中存在，但map中不存在，进行更新
-		for metric := range aom.Spec.Metrics {
-			if _, ok := aom.Status.CollectorMap[metric.NoModelKey()]; !ok {
-				toAdd = append(toAdd, metric)
-			}
-
-		}
-		// map 中存在但 spec中不存在，进行删除
-		for k := range aom.Status.CollectorMap {
-			exist := false
-			for metric := range aom.Spec.Metrics {
-				if metric.NoModelKey() == k {
-					exist = true
-					break
-				}
-			}
-			if !exist {
-				toDelete = append(toDelete, k)
-			}
-		}
-		for _, v := range toDelete {
-			collector.GlobalMetricCollectorMap.Delete(v)
-		}
-		for _, v := range toAdd {
-			metricType := collector.MetricType{
-				Name: v.Name,
-				Unit: v.Unit,
-			}
-			pCollector.AddCustomMetrics(metricType, v.Query)
-			worker, err := pCollector.CreateWorker(metricType)
-			if err != nil {
-				return err
-			}
-			collector.GlobalMetricCollectorMap.Store(v.NoModelKey(), worker)
-			go StartWorker(ctx, worker, aom)
-		}
-		// 更新status
-		aom.Status.CollectorMap = make(map[string]struct{})
-		for metric := range aom.Spec.Metrics {
-			aom.Status.CollectorMap[metric.NoModelKey()] = struct{}{}
-		}
-		return nil
-	}
-
-	promcOnce.Do(func() {
-		pCollector = prometheus_collector.New()
-	})
-	err := pCollector.SetServerAddress(aom.Spec.Collector.Address)
-	if err != nil {
-		logger.Error(err, "fail to set collector server address")
-		return err
-	}
-
-	workers := make([]collector.MetricCollector, 0)
-
-	for metric := range aom.Spec.Metrics {
-
-		metricType := collector.MetricType{
-			Name: metric.Name,
-			Unit: metric.Unit,
-		}
-		pCollector.AddCustomMetrics(metricType, metric.Query)
-		worker, err := pCollector.CreateWorker(metricType)
-		if err != nil {
-			return err
-		}
-		collector.GlobalMetricCollectorMap.Store(metric.NoModelKey(), worker)
-		workers = append(workers, worker)
-	}
-
-	for _, worker := range workers {
-		go StartWorker(ctx, worker, aom)
-	}
-
-	aom.Status.CollectorStatus = "up"
-
-	return nil
-}
-func StartWorker(ctx context.Context, worker collector.MetricCollector, aom *automationv1.AOM) {
+func StartWorker(ctx context.Context, worker collector.MetricCollector, aom *automationv1.AOM, stopC chan struct{}) {
 	ticker := time.NewTicker(aom.Spec.Collector.ScrapeInterval)
 	end := false
 	defer ticker.Stop()
@@ -232,15 +145,146 @@ func StartWorker(ctx context.Context, worker collector.MetricCollector, aom *aut
 		}
 		select {
 		case <-ctx.Done():
-			logger.Info("worker exit", "worker", worker)
+			log.Logger.Info("worker exit", "worker", worker.NoModelKey())
+			end = true
+			break
+		case <-stopC:
+			log.Logger.Info("worker exit", "worker", worker.NoModelKey())
 			end = true
 			break
 		default:
 			err := worker.Collect()
 			if err != nil {
-				logger.Error(err, "fail to collect",
-					"worker", worker)
+				log.Logger.Error(err, "fail to collect", "worker", worker.NoModelKey())
 			}
 		}
 	}
+}
+
+type Handler struct {
+	instance   *automationv1.AOM
+	predictors map[automationv1.Metric][]predictor.Predictor
+	*AOMReconciler
+}
+
+func NewHandler(instance *automationv1.AOM, reconciler *AOMReconciler) *Handler {
+	return &Handler{
+		instance:      instance,
+		AOMReconciler: reconciler,
+	}
+}
+func (hdlr *Handler) Handle(ctx context.Context) error {
+	// 是由 status的更新导致
+	if hdlr.instance.Status.Generation == hdlr.instance.Generation {
+		return nil
+	}
+	var err error
+	if hdlr.instance.Status.Generation == 0 {
+		err = hdlr.handleCreate(ctx)
+	}
+	if hdlr.instance.Status.Generation != 0 &&
+		hdlr.instance.Generation > hdlr.instance.Status.Generation {
+		err = hdlr.handleUpdate(ctx)
+	}
+	if err != nil {
+		return err
+	}
+
+	hdlr.instance.Status.Generation = hdlr.instance.Generation
+
+	if err := hdlr.Status().Update(ctx, hdlr.instance); err != nil {
+		log.Logger.Error(err, "update status failed")
+		return err
+	}
+	return nil
+
+}
+func (hdlr *Handler) handleUpdate(ctx context.Context) error {
+	if err := hdlr.handleCollector(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+func (hdlr *Handler) handleCreate(ctx context.Context) error {
+	promcOnce.Do(func() {
+		pCollector = prometheus_collector.New()
+	})
+	err := pCollector.SetServerAddress(hdlr.instance.Spec.Collector.Address)
+	if err != nil {
+		log.Logger.Error(err, "fail to set collector server address")
+		return err
+	}
+	hdlr.instance.Status.CollectorMap = make(map[string]chan struct{})
+	if err := hdlr.handleCollector(ctx); err != nil {
+		return err
+	}
+
+	return nil
+}
+func (hdlr *Handler) handleDelete(ctx context.Context) error {
+	return nil
+}
+
+func (hdlr *Handler) handleCollector(ctx context.Context) error {
+	// 此操作为幂等操作
+	// 其中的元素是格式化之后的metric，格式为: name/unit/query
+	toDelete := make([]string, 0)
+	toAdd := make([]automationv1.Metric, 0)
+
+	// spec中存在，但map中不存在，进行更新
+	for metric := range hdlr.instance.Spec.Metrics {
+		if _, ok := hdlr.instance.Status.CollectorMap[metric.NoModelKey()]; !ok {
+			toAdd = append(toAdd, metric)
+		}
+	}
+	// map 中存在但 spec中不存在，进行删除
+	for k := range hdlr.instance.Status.CollectorMap {
+		exist := false
+		for metric := range hdlr.instance.Spec.Metrics {
+			if metric.NoModelKey() == k {
+				exist = true
+				break
+			}
+		}
+		if !exist {
+			toDelete = append(toDelete, k)
+		}
+	}
+	for _, v := range toDelete {
+		// 对collecter worker进行退出控制
+		close(hdlr.instance.Status.CollectorMap[v])
+		collector.GlobalMetricCollectorMap.Delete(v)
+	}
+	for _, m := range toAdd {
+		pCollector.AddCustomMetrics(m)
+		worker, err := pCollector.CreateWorker(m)
+		if err != nil {
+			log.Logger.Error(err, "fail to create metric collector worker")
+			return err
+		}
+		collector.GlobalMetricCollectorMap.Store(m.NoModelKey(), worker)
+		stopC := make(chan struct{})
+		hdlr.instance.Status.CollectorMap[m.NoModelKey()] = stopC
+		go StartWorker(ctx, worker, hdlr.instance, stopC)
+	}
+	// 更新status
+	hdlr.instance.Status.StatusCollectors = make([]automationv1.StatusCollector, 0, len(hdlr.instance.Spec.Metrics))
+	for metric := range hdlr.instance.Spec.Metrics {
+		// 此处仅作describe时显示
+		hdlr.instance.Status.StatusCollectors = append(hdlr.instance.Status.StatusCollectors, automationv1.StatusCollector{
+			Name:       metric.Name,
+			Unit:       metric.Unit,
+			Expression: metric.Query,
+		})
+	}
+	if err := hdlr.Status().Update(ctx, hdlr.instance); err != nil {
+		log.Logger.Error(err, "update status failed")
+		return err
+	}
+	return nil
+}
+
+func (hdlr *Handler) handlePredictor(ctx context.Context) error {
+
+	return nil
 }
