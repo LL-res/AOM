@@ -15,7 +15,8 @@ var (
 )
 
 type Scheduler struct {
-	aom *automationv1.AOM
+	aom        *automationv1.AOM
+	predictors map[automationv1.Metric][]predictor.Predictor
 }
 type Conf struct {
 	needTrain       bool

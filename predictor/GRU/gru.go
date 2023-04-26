@@ -89,7 +89,7 @@ func (g *GRU) Predict(ctx context.Context, aom *automationv1.AOM) (result predic
 	if err != nil {
 		return predictor.PredictResult{}, err
 	}
-	// 更新amo的status
+	// 更新amo的status,TODO 移至上层防止包循环引用
 	statusHistory, _ := aom.Status.PredictorHistory.Load(g.withModelKey)
 	statusHistory.AppendPredictorHistory(time.Now())
 

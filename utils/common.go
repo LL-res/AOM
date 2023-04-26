@@ -2,6 +2,7 @@ package utils
 
 import (
 	"golang.org/x/exp/constraints"
+	"strings"
 	"sync"
 )
 
@@ -56,4 +57,8 @@ func Min[T constraints.Ordered](x ...T) T {
 		}
 	}
 	return min
+}
+func GetNoModelKey(withModelKey string) string {
+	strs := strings.Split(withModelKey, "/")
+	return strings.Join(strs[:len(strs)-1], "/")
 }

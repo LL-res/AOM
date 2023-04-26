@@ -17,8 +17,9 @@ limitations under the License.
 package v1
 
 import (
-	"fmt"
+	AOMtype "github.com/LL-res/AOM/common/type"
 	"github.com/LL-res/AOM/utils"
+
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"time"
@@ -39,51 +40,48 @@ type AOMSpec struct {
 
 	// +kubebuilder:validation:Minimum=1
 	// +optional
-	MaxReplicas int32              `json:"maxReplicas"`
-	Collector   Collector          `json:"collector"`
-	Metrics     map[Metric][]Model `json:"metrics"`
+	MaxReplicas int32                              `json:"maxReplicas"`
+	Collector   Collector                          `json:"collector"`
+	Metrics     map[AOMtype.Metric][]AOMtype.Model `json:"metrics"`
 }
 type Collector struct {
 	Address        string        `json:"address"`
 	ScrapeInterval time.Duration `json:"scrapeInterval"`
 }
-type Metric struct {
-	ScaleDownConf ScaleDownConf `json:"scaleDownConf"`
-	Target        float64       `json:"target"`
-	Name          string        `json:"name"`
-	Unit          string        `json:"unit"`
-	Query         string        `json:"query"`
-}
-type ScaleDownConf struct {
-	Threshold float64       `json:"threshold"`
-	Duration  time.Duration `json:"duration"`
-}
 
-func (m Metric) NoModelKey() string {
-	return fmt.Sprintf("%s/%s/%s", m.Name, m.Unit, m.Query)
-}
+//type Metric struct {
+//	ScaleDownConf ScaleDownConf `json:"scaleDownConf"`
+//	Target        float64       `json:"target"`
+//	Name          string        `json:"name"`
+//	Unit          string        `json:"unit"`
+//	Query         string        `json:"query"`
+//}
+//type ScaleDownConf struct {
+//	Threshold float64       `json:"threshold"`
+//	Duration  time.Duration `json:"duration"`
+//}
 
-type Model struct {
-	Type            string           // GRU LSTM
-	PredcitInterval *metav1.Duration `json:"predcitInterval"`
-	GRU             GRU
-	LSTM            LSTM
-}
-type LSTM struct {
-}
-type GRU struct {
-	// how far in second GRU will use to train
-	// +optional
-	TrainSize   int    `json:"trainSize"`
-	LookBack    int    `json:"lookBack"`
-	LookForward int    `json:"lookForward"`
-	Address     string `json:"address"`
-
-	//暂时把它当作，需要维持在的值
-	ScaleUpThreshold float64 `json:"scaleUpThreshold"`
-	//retrain interval
-	UpdateInterval *metav1.Duration `json:"updateInterval"`
-}
+//type Model struct {
+//	Type            string           // GRU LSTM
+//	PredcitInterval *metav1.Duration `json:"predcitInterval"`
+//	GRU             GRU
+//	LSTM            LSTM
+//}
+//type LSTM struct {
+//}
+//type GRU struct {
+//	// how far in second GRU will use to train
+//	// +optional
+//	TrainSize   int    `json:"trainSize"`
+//	LookBack    int    `json:"lookBack"`
+//	LookForward int    `json:"lookForward"`
+//	Address     string `json:"address"`
+//
+//	//暂时把它当作，需要维持在的值
+//	ScaleUpThreshold float64 `json:"scaleUpThreshold"`
+//	//retrain interval
+//	UpdateInterval *metav1.Duration `json:"updateInterval"`
+//}
 
 type PredictorHistory struct {
 	PredictHistory []time.Time
@@ -130,8 +128,11 @@ type AOMStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 	// up or down
-	CollectorMap     map[string]chan struct{} `json:"-"`
-	StatusCollectors []StatusCollector        `json:"collectors"`
+	// noModelKey
+	//CollectorMap map[string]chan struct{} `json:"-"`
+	// withModelKey
+	//PredictorMap     map[string]struct{} `json:"-"`
+	StatusCollectors []StatusCollector `json:"collectors"`
 	// withModelKey
 	PredictorHistory utils.ConcurrentMap[*PredictorHistory]
 	Generation       int64 `json:"generation"`
@@ -152,6 +153,8 @@ type AOM struct {
 
 	Spec   AOMSpec   `json:"spec,omitempty"`
 	Status AOMStatus `json:"status,omitempty"`
+
+	AOMtype.Hide `json:"-"`
 }
 
 //+kubebuilder:object:root=true
