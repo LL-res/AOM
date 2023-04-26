@@ -24,7 +24,6 @@ import (
 	"github.com/LL-res/AOM/log"
 	"github.com/LL-res/AOM/predictor"
 	"github.com/LL-res/AOM/scheduler"
-	"github.com/LL-res/AOM/utils"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sync"
 	"time"
@@ -134,8 +133,8 @@ func StartWorker(ctx context.Context, worker collector.MetricCollector, aom *aut
 }
 
 type Handler struct {
-	instance   *automationv1.AOM
-	predictors map[automationv1.Metric][]predictor.Predictor
+	instance *automationv1.AOM
+	//predictors map[*AOMtype.Metric][]predictor.Predictor
 	*AOMReconciler
 }
 
@@ -145,6 +144,7 @@ func NewHandler(instance *automationv1.AOM, reconciler *AOMReconciler) *Handler 
 		AOMReconciler: reconciler,
 	}
 }
+
 func (hdlr *Handler) Handle(ctx context.Context) error {
 	// 是由 status的更新导致
 	if hdlr.instance.Status.Generation == hdlr.instance.Generation {
@@ -171,6 +171,7 @@ func (hdlr *Handler) Handle(ctx context.Context) error {
 	return nil
 
 }
+
 func (hdlr *Handler) handleUpdate(ctx context.Context) error {
 	if err := hdlr.handleCollector(ctx); err != nil {
 		return err
@@ -180,6 +181,7 @@ func (hdlr *Handler) handleUpdate(ctx context.Context) error {
 	}
 	return nil
 }
+
 func (hdlr *Handler) handleCreate(ctx context.Context) error {
 	promcOnce.Do(func() {
 		pCollector = prometheus_collector.New()
@@ -193,16 +195,17 @@ func (hdlr *Handler) handleCreate(ctx context.Context) error {
 	if err := hdlr.handleCollector(ctx); err != nil {
 		return err
 	}
-	if hdlr.predictors == nil {
-		hdlr.predictors = make(map[automationv1.Metric][]predictor.Predictor, 0)
-	}
-	hdlr.instance.Status.PredictorMap = make(map[string]struct{})
+	//if hdlr.predictors == nil {
+	//	hdlr.predictors = make(map[*AOMtype.Metric][]predictor.Predictor, 0)
+	//}
+
 	if err := hdlr.handlePredictor(ctx); err != nil {
 		return err
 	}
 
 	return nil
 }
+
 func (hdlr *Handler) handleDelete(ctx context.Context) error {
 	return nil
 }
@@ -235,7 +238,7 @@ func (hdlr *Handler) handleCollector(ctx context.Context) error {
 	for _, v := range toDelete {
 		// 对collecter worker进行退出控制
 		close(hdlr.instance.CollectorMap[v])
-		collector.GlobalMetricCollectorMap.Delete(v)
+		hdlr.instance.CollectorWorkerMap.Delete(v)
 	}
 	for _, m := range toAdd {
 		pCollector.AddCustomMetrics(m)
@@ -244,7 +247,7 @@ func (hdlr *Handler) handleCollector(ctx context.Context) error {
 			log.Logger.Error(err, "fail to create metric collector worker")
 			return err
 		}
-		collector.GlobalMetricCollectorMap.Store(m.NoModelKey(), worker)
+		hdlr.instance.CollectorWorkerMap.Set(m.NoModelKey(), worker)
 		stopC := make(chan struct{})
 		hdlr.instance.CollectorMap[m.NoModelKey()] = stopC
 		go StartWorker(ctx, worker, hdlr.instance, stopC)
@@ -302,13 +305,18 @@ func (hdlr *Handler) handlePredictor(ctx context.Context) error {
 	}
 	for _, wmk := range toDelete {
 		hdlr.instance.PredictorMap.Delete(wmk)
-		mk := utils.GetNoModelKey(wmk)
+		//nmk := utils.GetNoModelKey(wmk)
 		//找到metric对应的那一组predictor
-		for i, pred := range hdlr.predictors[MetricMap[mk]] {
-			if pred.Key() == wmk {
-				hdlr.predictors[MetricMap[mk]] = append(hdlr.predictors[MetricMap[mk]][:i], hdlr.predictors[MetricMap[mk]][i+1:]...)
-			}
-		}
+		//metric, err := hdlr.instance.MetricMap.Get(nmk)
+		//if err != nil {
+		//	log.Logger.Error(err, "a must behaviour failed,predictor can not find the corresponding metric")
+		//	return err
+		//}
+		//for i, pred := range hdlr.predictors[metric] {
+		//	if pred.Key() == wmk {
+		//		hdlr.predictors[metric] = append(hdlr.predictors[metric][:i], hdlr.predictors[metric][i+1:]...)
+		//	}
+		//}
 	}
 	for _, param := range toAdd {
 		WithModelKey := param.WithModelKey(param.Model.Type)
@@ -328,14 +336,15 @@ func (hdlr *Handler) handlePredictor(ctx context.Context) error {
 			return err
 		}
 		hdlr.instance.PredictorMap.Set(param.WithModelKey(param.Type), pred)
-		metric, err := hdlr.instance.MetricMap.Get(param.NoModelKey())
-		if err != nil {
-			log.Logger.Error(err, "a must behaviour failed,predictor can not find the corresponding metric")
-			return err
-		}
-		hdlr.predictors[metric] = append(hdlr.predictors[metric], pred)
+		//metric, err := hdlr.instance.MetricMap.Get(param.NoModelKey())
+		//if err != nil {
+		//	log.Logger.Error(err, "a must behaviour failed,predictor can not find the corresponding metric")
+		//	return err
+		//}
+		//hdlr.predictors[metric] = append(hdlr.predictors[metric], pred)
 
 	}
+	//TODO 展示部分的status还未完成
 	if err := hdlr.Status().Update(ctx, hdlr.instance); err != nil {
 		log.Logger.Error(err, "update status failed")
 		return err

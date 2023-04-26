@@ -3,6 +3,7 @@ package AOMtype
 import (
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/predictor"
+	"github.com/LL-res/AOM/scheduler"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"time"
 )
@@ -20,7 +21,8 @@ type Hide struct {
 	//noModelKey
 	CollectorWorkerMap Map[collector.MetricCollector]
 	//withModelKey
-	ModelMap Map[*Model]
+	ModelMap  Map[*Model]
+	scheduler scheduler.Scheduler
 }
 type Metric struct {
 	ScaleDownConf ScaleDownConf `json:"scaleDownConf"`

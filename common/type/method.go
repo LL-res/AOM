@@ -12,11 +12,11 @@ func (h *Hide) Init() {
 }
 
 func (m *Map[T]) New() {
-	m.data = make(map[string]T)
+	m.Data = make(map[string]T)
 }
 
 func (m *Map[T]) Get(key string) (T, error) {
-	val, ok := m.data[key]
+	val, ok := m.Data[key]
 	if !ok {
 		return val, errors.New("value not found")
 	}
@@ -24,11 +24,11 @@ func (m *Map[T]) Get(key string) (T, error) {
 }
 
 func (m *Map[T]) Delete(key string) {
-	delete(m.data, key)
+	delete(m.Data, key)
 }
 
 func (m *Map[T]) Set(key string, value T) {
-	m.data[key] = value
+	m.Data[key] = value
 }
 
 func (m Metric) NoModelKey() string {

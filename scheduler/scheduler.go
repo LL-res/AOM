@@ -24,6 +24,7 @@ type Conf struct {
 	predictInterval time.Duration
 }
 
+// TODO 此处应该是每一个instance对应一个scheduler，而不是单例模式，待修改
 func Init(aom *automationv1.AOM) {
 	if GlobalScheduler == nil {
 		GlobalScheduler = &Scheduler{aom: aom}
