@@ -2,8 +2,8 @@ package collector
 
 import (
 	"fmt"
-	automationv1 "github.com/LL-res/AOM/api/v1"
-	"github.com/LL-res/AOM/utils"
+	"github.com/LL-res/AOM/common/basetype"
+
 	"sync"
 	"time"
 )
@@ -14,22 +14,16 @@ type MetricSeries struct {
 	Length    int
 }
 
-var GlobalMetricCollectorMap *utils.ConcurrentMap[MetricCollector]
-
 type WorkerMap[T any] struct {
 	data map[string]T
 	sync.RWMutex
 }
 
-func InitGlobalMap() {
-	GlobalMetricCollectorMap = utils.NewConcurrentMap[MetricCollector]()
-}
-
 type Collector interface {
 	SetServerAddress(url string) error
-	ListMetricTypes() []automationv1.Metric
-	AddCustomMetrics(metric automationv1.Metric)
-	CreateWorker(MetricType automationv1.Metric) (MetricCollector, error)
+	ListMetricTypes() []basetype.Metric
+	AddCustomMetrics(metric basetype.Metric)
+	CreateWorker(MetricType basetype.Metric) (MetricCollector, error)
 }
 type MetricCollector interface {
 	Collect() error
@@ -39,7 +33,7 @@ type MetricCollector interface {
 }
 type CollectorBase struct {
 	//key: the name of  supported metric type,value: the promql to get key metric type
-	MetricQL map[automationv1.Metric]string
+	MetricQL map[basetype.Metric]string
 	//server url
 	ServerAddress string
 }

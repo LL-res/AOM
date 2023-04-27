@@ -1,32 +1,14 @@
-package AOMtype
+package basetype
 
 import (
-	"github.com/LL-res/AOM/collector"
-	"github.com/LL-res/AOM/predictor"
-	"github.com/LL-res/AOM/scheduler"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"time"
 )
 
-type Map[T any] struct {
-	Data map[string]T
-}
-type Hide struct {
-	//noModelKey
-	CollectorMap map[string]chan struct{}
-	//noModelKey
-	MetricMap Map[*Metric]
-	//withModelKey
-	PredictorMap Map[predictor.Predictor]
-	//noModelKey
-	CollectorWorkerMap Map[collector.MetricCollector]
-	//withModelKey
-	ModelMap  Map[*Model]
-	scheduler scheduler.Scheduler
-}
 type Metric struct {
 	ScaleDownConf ScaleDownConf `json:"scaleDownConf"`
 	Target        float64       `json:"target"`
+	Weight        int32         `json:"weight"`
 	Name          string        `json:"name"`
 	Unit          string        `json:"unit"`
 	Query         string        `json:"query"`
@@ -37,6 +19,7 @@ type ScaleDownConf struct {
 }
 type Model struct {
 	Type            string           // GRU LSTM
+	NeedTrain       bool             //
 	PredcitInterval *metav1.Duration `json:"predcitInterval"`
 	GRU             GRU
 	LSTM            LSTM

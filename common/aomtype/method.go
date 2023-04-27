@@ -1,14 +1,14 @@
-package AOMtype
+package aomtype
 
 import (
 	"errors"
-	"fmt"
 )
 
 func (h *Hide) Init() {
-	h.MetricMap.New()
-	h.PredictorMap.New()
-	h.ModelMap.New()
+	h.MetricMap.NewConcurrentMap()
+	h.PredictorMap.NewConcurrentMap()
+	h.ModelMap.NewConcurrentMap()
+	h.CollectorWorkerMap.NewConcurrentMap()
 }
 
 func (m *Map[T]) New() {
@@ -29,11 +29,4 @@ func (m *Map[T]) Delete(key string) {
 
 func (m *Map[T]) Set(key string, value T) {
 	m.Data[key] = value
-}
-
-func (m Metric) NoModelKey() string {
-	return fmt.Sprintf("%s/%s/%s", m.Name, m.Unit, m.Query)
-}
-func (m Metric) WithModelKey(modelType string) string {
-	return fmt.Sprintf("%s/%s", m.NoModelKey(), modelType)
 }

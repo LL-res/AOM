@@ -4,19 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	automationv1 "github.com/LL-res/AOM/api/v1"
 	"github.com/LL-res/AOM/clients/k8s"
 	"github.com/LL-res/AOM/collector"
-	"github.com/LL-res/AOM/predictor"
+	"github.com/LL-res/AOM/common/consts"
+	ptype "github.com/LL-res/AOM/predictor/type"
 	"github.com/LL-res/AOM/utils"
 	"go.uber.org/atomic"
 	"io"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	"log"
 	"net"
 	"os"
-	"time"
-
-	"log"
 )
 
 const (
@@ -29,32 +27,32 @@ const (
 // 在controller里控制要不要进行predict或者train，status里记录了模型的状态
 // 在这里的预测服务只要专心进行预测即可
 
-func New(collectorWorker collector.MetricCollector, model automationv1.Model, ScaleTargetRef autoscalingv2.CrossVersionObjectReference, withModelKey string) (*GRU, error) {
+func New(collectorWorker collector.MetricCollector, model Model, ScaleTargetRef autoscalingv2.CrossVersionObjectReference, withModelKey string) (*GRU, error) {
 	return &GRU{
-		Base: predictor.Base{
+		Base: ptype.Base{
 			MetricHistory: collectorWorker.Send(),
 		},
 		withModelKey:    withModelKey,
 		model:           model,
 		collectorWorker: collectorWorker,
 		readyToPredict:  atomic.NewBool(false),
-		address:         model.GRU.Address,
+		address:         model.Address,
 		ScaleTargetRef:  ScaleTargetRef,
 	}, nil
 
 }
 
-func (g *GRU) Predict(ctx context.Context, aom *automationv1.AOM) (result predictor.PredictResult, err error) {
+func (g *GRU) Predict(ctx context.Context) (result ptype.PredictResult, err error) {
 	if !g.readyToPredict.Load() {
-		return predictor.PredictResult{}, errors.New("the model is not ready to predict")
+		return ptype.PredictResult{}, errors.New("the model is not ready to predict")
 	}
 	// 如果worker中的数据量不足，直接返回
-	if g.collectorWorker.DataCap() < g.model.GRU.LookForward {
-		return predictor.PredictResult{}, errors.New("no sufficient data to predict")
+	if g.collectorWorker.DataCap() < g.model.LookForward {
+		return ptype.PredictResult{}, errors.New("no sufficient data to predict")
 	}
 	tempData := g.collectorWorker.Send()
 	// with timestamp
-	predictData := tempData[len(tempData)-g.model.GRU.LookBack:]
+	predictData := tempData[len(tempData)-g.model.LookBack:]
 	//no timestamp
 	predictHistory := make([]float64, 0, len(predictData))
 	for _, v := range predictData {
@@ -62,51 +60,51 @@ func (g *GRU) Predict(ctx context.Context, aom *automationv1.AOM) (result predic
 	}
 	req := Request{
 		PredictHistory: predictHistory,
-		LookBack:       g.model.GRU.LookBack,
-		LookForward:    g.model.GRU.LookForward,
+		LookBack:       g.model.LookBack,
+		LookForward:    g.model.LookForward,
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
-		return predictor.PredictResult{}, err
+		return ptype.PredictResult{}, err
 	}
 	socketReq := &utils.SocketReq{}
 	socketReq.SetAddress(g.address).SetBody(string(body)).SetNetwork("unix")
 	socketRsp, err := utils.SocketSendReq(*socketReq)
 	if err != nil {
-		return predictor.PredictResult{}, err
+		return ptype.PredictResult{}, err
 	}
 	response := Response{}
 	err = json.Unmarshal([]byte(socketRsp), &response)
 	if err != nil {
-		return predictor.PredictResult{}, err
+		return ptype.PredictResult{}, err
 	}
 	if !response.Trained {
-		return predictor.PredictResult{}, errors.New("the model is not ready to predict")
+		return ptype.PredictResult{}, errors.New("the model is not ready to predict")
 	}
 	result.StartMetric = predictHistory[len(predictHistory)-1]
-	result.StartReplica, err = k8s.GlobalClient.GetReplica(aom.Namespace, aom.Spec.ScaleTargetRef)
+	result.StartReplica, err = k8s.GlobalClient.GetReplica(ctx.Value(consts.NAMESPACE).(string), g.ScaleTargetRef)
 
 	if err != nil {
-		return predictor.PredictResult{}, err
+		return ptype.PredictResult{}, err
 	}
-	// 更新amo的status,TODO 移至上层防止包循环引用
-	statusHistory, _ := aom.Status.PredictorHistory.Load(g.withModelKey)
-	statusHistory.AppendPredictorHistory(time.Now())
+	//// 更新amo的status,TODO 移至上层防止包循环引用
+	//statusHistory, _ := aom.Status.PredictorHistory.Load(g.withModelKey)
+	//statusHistory.AppendPredictorHistory(time.Now())
 
 	return
 }
 
 func (g *GRU) GetType() string {
-	return automationv1.TypeGRU
+	return consts.GRU
 }
 
 func (g *GRU) Train(ctx context.Context) error {
-	if len(g.MetricHistory) < g.model.GRU.TrainSize {
+	if len(g.MetricHistory) < g.model.TrainSize {
 		return errors.New("no sufficient data to train")
 	}
 	tempData := g.collectorWorker.Send()
 	//with timestamp
-	TrainData := tempData[len(tempData)-g.model.GRU.TrainSize:]
+	TrainData := tempData[len(tempData)-g.model.TrainSize:]
 	//no timestamp
 	TrainHistory := make([]float64, 0, len(TrainData))
 	for _, v := range TrainData {
@@ -114,9 +112,9 @@ func (g *GRU) Train(ctx context.Context) error {
 	}
 	req := Request{
 		TrainHistory: TrainHistory,
-		LookBack:     g.model.GRU.LookBack,
-		LookForward:  g.model.GRU.LookForward,
-		BatchSize:    g.model.GRU.TrainSize / 10,
+		LookBack:     g.model.LookBack,
+		LookForward:  g.model.LookForward,
+		BatchSize:    g.model.TrainSize / 10,
 		Epochs:       Epochs,
 		NLayers:      Nlayers,
 	}

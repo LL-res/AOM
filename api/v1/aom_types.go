@@ -17,7 +17,9 @@ limitations under the License.
 package v1
 
 import (
-	AOMtype "github.com/LL-res/AOM/common/type"
+	AOMtype "github.com/LL-res/AOM/common/aomtype"
+	"github.com/LL-res/AOM/common/basetype"
+	"github.com/LL-res/AOM/scheduler"
 	"github.com/LL-res/AOM/utils"
 
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -40,9 +42,10 @@ type AOMSpec struct {
 
 	// +kubebuilder:validation:Minimum=1
 	// +optional
-	MaxReplicas int32                              `json:"maxReplicas"`
-	Collector   Collector                          `json:"collector"`
-	Metrics     map[AOMtype.Metric][]AOMtype.Model `json:"metrics"`
+	MaxReplicas int32                                `json:"maxReplicas"`
+	Collector   Collector                            `json:"collector"`
+	Metrics     map[basetype.Metric][]basetype.Model `json:"metrics"`
+	Interval    time.Duration                        `json:"interval"`
 }
 type Collector struct {
 	Address        string        `json:"address"`
@@ -154,7 +157,8 @@ type AOM struct {
 	Spec   AOMSpec   `json:"spec,omitempty"`
 	Status AOMStatus `json:"status,omitempty"`
 
-	AOMtype.Hide `json:"-"`
+	AOMtype.Hide         `json:"-"`
+	*scheduler.Scheduler `json:"-"`
 }
 
 //+kubebuilder:object:root=true

@@ -20,7 +20,7 @@ import (
 	"context"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/collector/prometheus_collector"
-	AOMtype "github.com/LL-res/AOM/common/type"
+	"github.com/LL-res/AOM/common/basetype"
 	"github.com/LL-res/AOM/log"
 	"github.com/LL-res/AOM/predictor"
 	"github.com/LL-res/AOM/scheduler"
@@ -89,12 +89,6 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	// 将这些predictor交给scheduler进行调度
 	// 考虑不同的instance 对应不同的scheduler
-	scheduler.Init(instance)
-	err = scheduler.GlobalScheduler.HandlePredictors(ctx, predictors)
-	if err != nil {
-		logger.Error(err, "scheduler failed")
-		return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
-	}
 
 	return ctrl.Result{}, nil
 }
@@ -111,7 +105,7 @@ func StartWorker(ctx context.Context, worker collector.MetricCollector, aom *aut
 	end := false
 	defer ticker.Stop()
 	for _ = range ticker.C {
-		if _, ok := collector.GlobalMetricCollectorMap.Load(worker.NoModelKey()); !ok || end {
+		if _, err := aom.CollectorWorkerMap.Load(worker.NoModelKey()); err != nil || end {
 			break
 		}
 		select {
@@ -134,7 +128,7 @@ func StartWorker(ctx context.Context, worker collector.MetricCollector, aom *aut
 
 type Handler struct {
 	instance *automationv1.AOM
-	//predictors map[*AOMtype.Metric][]predictor.Predictor
+	//predictors map[*basetype.Metric][]predictor.Predictor
 	*AOMReconciler
 }
 
@@ -196,12 +190,17 @@ func (hdlr *Handler) handleCreate(ctx context.Context) error {
 		return err
 	}
 	//if hdlr.predictors == nil {
-	//	hdlr.predictors = make(map[*AOMtype.Metric][]predictor.Predictor, 0)
+	//	hdlr.predictors = make(map[*basetype.Metric][]predictor.Predictor, 0)
 	//}
 
 	if err := hdlr.handlePredictor(ctx); err != nil {
 		return err
 	}
+
+	if hdlr.instance.Scheduler == nil {
+		hdlr.instance.Scheduler = scheduler.New(&hdlr.instance.Hide, hdlr.instance.Spec.Interval)
+	}
+	go hdlr.instance.Scheduler.Run(ctx)
 
 	return nil
 }
@@ -214,7 +213,7 @@ func (hdlr *Handler) handleCollector(ctx context.Context) error {
 	// 此操作为幂等操作
 	// 其中的元素是格式化之后的metric，格式为: name/unit/query
 	toDelete := make([]string, 0)
-	toAdd := make([]AOMtype.Metric, 0)
+	toAdd := make([]basetype.Metric, 0)
 
 	// spec中存在，但map中不存在，进行更新
 	for metric := range hdlr.instance.Spec.Metrics {
@@ -247,7 +246,7 @@ func (hdlr *Handler) handleCollector(ctx context.Context) error {
 			log.Logger.Error(err, "fail to create metric collector worker")
 			return err
 		}
-		hdlr.instance.CollectorWorkerMap.Set(m.NoModelKey(), worker)
+		hdlr.instance.CollectorWorkerMap.Store(m.NoModelKey(), worker)
 		stopC := make(chan struct{})
 		hdlr.instance.CollectorMap[m.NoModelKey()] = stopC
 		go StartWorker(ctx, worker, hdlr.instance, stopC)
@@ -270,8 +269,8 @@ func (hdlr *Handler) handleCollector(ctx context.Context) error {
 }
 
 type mdlMtrc struct {
-	AOMtype.Model
-	AOMtype.Metric
+	basetype.Model
+	basetype.Metric
 }
 
 func (hdlr *Handler) handlePredictor(ctx context.Context) error {
@@ -281,7 +280,7 @@ func (hdlr *Handler) handlePredictor(ctx context.Context) error {
 	toAdd := make([]mdlMtrc, 0)
 	for mtrc, mdls := range hdlr.instance.Spec.Metrics {
 		for _, model := range mdls {
-			if _, err := hdlr.instance.PredictorMap.Get(mtrc.WithModelKey(model.Type)); err != nil {
+			if _, err := hdlr.instance.PredictorMap.Load(mtrc.WithModelKey(model.Type)); err != nil {
 				toAdd = append(toAdd, mdlMtrc{
 					Model:  model,
 					Metric: mtrc,
@@ -320,7 +319,7 @@ func (hdlr *Handler) handlePredictor(ctx context.Context) error {
 	}
 	for _, param := range toAdd {
 		WithModelKey := param.WithModelKey(param.Model.Type)
-		collect, err := hdlr.instance.CollectorWorkerMap.Get(param.NoModelKey())
+		collect, err := hdlr.instance.CollectorWorkerMap.Load(param.NoModelKey())
 		if err != nil {
 			log.Logger.Error(err, "a must behaviour failed,predictor can not find the corresponding collector")
 			return err
@@ -335,7 +334,7 @@ func (hdlr *Handler) handlePredictor(ctx context.Context) error {
 			log.Logger.Error(err, "new predictor failed")
 			return err
 		}
-		hdlr.instance.PredictorMap.Set(param.WithModelKey(param.Type), pred)
+		hdlr.instance.PredictorMap.Store(param.WithModelKey(param.Type), pred)
 		//metric, err := hdlr.instance.MetricMap.Get(param.NoModelKey())
 		//if err != nil {
 		//	log.Logger.Error(err, "a must behaviour failed,predictor can not find the corresponding metric")
