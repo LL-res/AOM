@@ -50,8 +50,9 @@ class LSTMNet(nn.Module):
         return hidden
 
 
-def train(train_loader,metrci_type, learn_rate=0.001, hidden_dim=256, EPOCHS=param.epochs, model_type="GRU"):
+def train(train_loader,metric_type, learn_rate=0.001, hidden_dim=256, model_type="GRU"):
     # Setting common hyperparameters
+    global avg_loss
     input_dim = next(iter(train_loader))[0].shape[2]
     output_dim = param.look_forward
     n_layers = param.n_layers
@@ -70,7 +71,7 @@ def train(train_loader,metrci_type, learn_rate=0.001, hidden_dim=256, EPOCHS=par
     print("Starting Training of {} model".format(model_type))
     epoch_times = []
     # Start training loop
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(1, param.epochs + 1):
         start_time = time.perf_counter()
         h = model.init_hidden(param.batch_size)
         avg_loss = 0.
@@ -93,12 +94,12 @@ def train(train_loader,metrci_type, learn_rate=0.001, hidden_dim=256, EPOCHS=par
                                                                                            len(train_loader),
                                                                                            avg_loss / counter))
         current_time = time.perf_counter()
-        print("Epoch {}/{} Done, Total Loss: {}".format(epoch, EPOCHS, avg_loss / len(train_loader)))
+        print("Epoch {}/{} Done, Total Loss: {}".format(epoch, param.epochs, avg_loss / len(train_loader)))
         print("Time Elapsed for Epoch: {} seconds".format(str(current_time - start_time)))
         epoch_times.append(current_time - start_time)
     print("Total Training Time: {} seconds".format(str(sum(epoch_times))))
-    torch.save(model.state_dict(), '{}_{}.pt'.format(model_type,metrci_type))
-    return model
+    torch.save(model.state_dict(), '{}.pt'.format(metric_type))
+    return avg_loss / len(train_loader)#model
 
 
 def evaluate(model, test_x, test_y, label_scalers):
@@ -120,7 +121,7 @@ def evaluate(model, test_x, test_y, label_scalers):
     print("sMAPE: {}%".format(sMAPE * 100))
     return outputs, targets, sMAPE
 
-def predict(metrics,model_type,metric_type,hidden_dim = 256):
+def predict(metrics,metric_type,model_type="GRU",hidden_dim = 256):
     metrics = np.array(metrics)
     # 只要后look back个的数据
     metrics = metrics[-param.look_back:]
@@ -134,7 +135,7 @@ def predict(metrics,model_type,metric_type,hidden_dim = 256):
     else:
         model = LSTMNet(input_dim, hidden_dim, output_dim, n_layers)
     model.to(param.device)
-    model.load_state_dict(torch.load('{}_{}.pt'.format(model_type,metric_type)))
+    model.load_state_dict(torch.load('{}.pt'.format(metric_type)))
     h = model.init_hidden(metrics.shape[0])
     out,_ = model(torch.from_numpy(metrics).to(param.device).float(),h)
     return out

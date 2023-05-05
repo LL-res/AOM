@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"errors"
 	"fmt"
 	"golang.org/x/exp/constraints"
 	"strings"
@@ -18,7 +17,7 @@ func (m *ConcurrentMap[T]) Load(key string) (T, error) {
 	defer m.RUnlock()
 	val, ok := m.Data[key]
 	if !ok {
-		return val, errors.New(fmt.Sprint("value not found,key [%s]", key))
+		return val, fmt.Errorf("value not found,key [%s]", key)
 	}
 	return val, nil
 }
@@ -79,11 +78,11 @@ func Min[T constraints.Ordered](x ...T) T {
 	return min
 }
 func GetNoModelKey(withModelKey string) string {
-	strs := strings.Split(withModelKey, "/")
-	return strings.Join(strs[:len(strs)-1], "/")
+	strs := strings.Split(withModelKey, "$")
+	return strings.Join(strs[:len(strs)-1], "$")
 }
 func GetModelType(withModelType string) string {
-	strs := strings.Split(withModelType, "/")
+	strs := strings.Split(withModelType, "$")
 	return strs[len(strs)-1]
 }
 func MulSlice[T constraints.Float | constraints.Integer](k T, nums []T) {

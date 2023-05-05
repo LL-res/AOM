@@ -1,12 +1,9 @@
 package scaler
 
 import (
-	"context"
 	"errors"
 	"github.com/LL-res/AOM/clients/k8s"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 var (
@@ -25,27 +22,19 @@ func (s *Scaler) RecvChan() chan []float64 {
 	}
 	return s.recvChan
 }
-func Init(namespace string, scaleTargetRef autoscalingv2.CrossVersionObjectReference) {
-	if GlobalScaler == nil {
-		GlobalScaler = &Scaler{namespace: namespace, ScaleTargetRef: scaleTargetRef}
-	}
+func New(namespace string, scaleTargetRef autoscalingv2.CrossVersionObjectReference) *Scaler {
+
+	return &Scaler{namespace: namespace, ScaleTargetRef: scaleTargetRef}
+
 }
 
 // 每个model对应一个
-func (s *Scaler) GetModelReplica(startMetric float64, strategy BaseStrategy, targetMetric float64) ([]int32, error) {
-	scaleObj, err := k8s.GlobalClient.ScaleGetter.Scales(s.namespace).Get(context.Background(), schema.GroupResource{
-		Group:    s.ScaleTargetRef.APIVersion,
-		Resource: s.ScaleTargetRef.Kind,
-	}, s.ScaleTargetRef.Name, metav1.GetOptions{})
+func (s *Scaler) GetModelReplica(predictMetrics []float64, startMetric float64, strategy BaseStrategy, targetMetric float64) ([]int32, error) {
+	startReplica, err := k8s.GlobalClient.GetReplica(s.namespace, s.ScaleTargetRef)
 	if err != nil {
 		return nil, err
 	}
-	startReplica := scaleObj.Spec.Replicas
 	// 获取预测的指标数据
-	predictMetrics := <-s.RecvChan()
-	if predictMetrics == nil {
-		return nil, errors.New("no metrics received")
-	}
 	return strategy(targetMetric, startMetric, startReplica, predictMetrics), nil
 
 }

@@ -4,17 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/LL-res/AOM/clients/k8s"
 	"github.com/LL-res/AOM/collector"
+	"github.com/LL-res/AOM/common/basetype"
 	"github.com/LL-res/AOM/common/consts"
 	ptype "github.com/LL-res/AOM/predictor/type"
 	"github.com/LL-res/AOM/utils"
 	"go.uber.org/atomic"
 	"io"
-	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	"log"
 	"net"
 	"os"
+	"os/exec"
+	"runtime"
+	"time"
 )
 
 const (
@@ -22,12 +24,21 @@ const (
 	RespRecvAdress = "/tmp/rra.socket"
 	Epochs         = 100
 	Nlayers        = 2
+	pythonMain     = "../../algorithms/DL/main.py"
+	pythonDir      = "../../algorithms/DL"
 )
 
 // 在controller里控制要不要进行predict或者train，status里记录了模型的状态
 // 在这里的预测服务只要专心进行预测即可
 
-func New(collectorWorker collector.MetricCollector, model Model, ScaleTargetRef autoscalingv2.CrossVersionObjectReference, withModelKey string) (*GRU, error) {
+func New(collectorWorker collector.MetricCollector, model basetype.GRU, withModelKey string) (*GRU, error) {
+	cmd := exec.Command("python3", pythonMain)
+	go func() {
+		if err := cmd.Run(); err != nil {
+			log.Println(err)
+		}
+	}()
+	time.Sleep(time.Second)
 	return &GRU{
 		Base: ptype.Base{
 			MetricHistory: collectorWorker.Send(),
@@ -37,7 +48,6 @@ func New(collectorWorker collector.MetricCollector, model Model, ScaleTargetRef 
 		collectorWorker: collectorWorker,
 		readyToPredict:  atomic.NewBool(false),
 		address:         model.Address,
-		ScaleTargetRef:  ScaleTargetRef,
 	}, nil
 
 }
@@ -59,6 +69,7 @@ func (g *GRU) Predict(ctx context.Context) (result ptype.PredictResult, err erro
 		predictHistory = append(predictHistory, v.Value)
 	}
 	req := Request{
+		Key:            g.withModelKey,
 		PredictHistory: predictHistory,
 		LookBack:       g.model.LookBack,
 		LookForward:    g.model.LookForward,
@@ -82,8 +93,8 @@ func (g *GRU) Predict(ctx context.Context) (result ptype.PredictResult, err erro
 		return ptype.PredictResult{}, errors.New("the model is not ready to predict")
 	}
 	result.StartMetric = predictHistory[len(predictHistory)-1]
-	result.StartReplica, err = k8s.GlobalClient.GetReplica(ctx.Value(consts.NAMESPACE).(string), g.ScaleTargetRef)
-
+	result.PredictMetric = response.Prediction
+	result.Loss = response.Loss
 	if err != nil {
 		return ptype.PredictResult{}, err
 	}
@@ -111,12 +122,14 @@ func (g *GRU) Train(ctx context.Context) error {
 		TrainHistory = append(TrainHistory, v.Value)
 	}
 	req := Request{
-		TrainHistory: TrainHistory,
-		LookBack:     g.model.LookBack,
-		LookForward:  g.model.LookForward,
-		BatchSize:    g.model.TrainSize / 10,
-		Epochs:       Epochs,
-		NLayers:      Nlayers,
+		Key:            g.withModelKey,
+		RespRecvAdress: g.model.RespRecvAdress,
+		TrainHistory:   TrainHistory,
+		LookBack:       g.model.LookBack,
+		LookForward:    g.model.LookForward,
+		BatchSize:      g.model.TrainSize / 10,
+		Epochs:         g.model.Epochs,
+		NLayers:        g.model.NLayers,
 	}
 	reqJson, err := json.Marshal(req)
 	if err != nil {
@@ -142,7 +155,10 @@ func (g *GRU) Train(ctx context.Context) error {
 	// 起一个协程去等输出，此刻直接返回
 	// 协程收到返回后进行状态更新
 	go func() {
-		_ = g.WaitAndUpdate(ctx)
+		if err := g.WaitAndUpdate(ctx); err != nil {
+			runtime.Goexit()
+		}
+
 	}()
 
 	return nil
@@ -204,6 +220,7 @@ func (g *GRU) WaitAndUpdate(ctx context.Context) error {
 		log.Println(err)
 		return err
 	}
+	log.Println(resp)
 	g.readyToPredict.Store(resp.Trained)
 	return nil
 }

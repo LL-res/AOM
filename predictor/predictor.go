@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/LL-res/AOM/collector"
+	"github.com/LL-res/AOM/common/basetype"
 	"github.com/LL-res/AOM/common/consts"
 	"github.com/LL-res/AOM/predictor/GRU"
 	ptype "github.com/LL-res/AOM/predictor/type"
@@ -68,7 +69,7 @@ type PredictResult struct {
 func NewPredictor(param Param) (Predictor, error) {
 	switch utils.GetModelType(param.WithModelKey) {
 	case consts.GRU:
-		pred, err := GRU.New(param.MetricCollector, param.Model.(GRU.Model), param.ScaleTargetRef, param.WithModelKey)
+		pred, err := GRU.New(param.MetricCollector, param.Model.(basetype.GRU), param.WithModelKey)
 		if err != nil {
 			return nil, err
 		}

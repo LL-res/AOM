@@ -18,24 +18,23 @@ type ScaleDownConf struct {
 	Duration  time.Duration `json:"duration"`
 }
 type Model struct {
-	Type            string           // GRU LSTM
-	NeedTrain       bool             //
+	Type           string           // GRU LSTM
+	NeedTrain      bool             //
+	UpdateInterval *metav1.Duration `json:"updateInterval"`
+	// 移至metric处
 	PredcitInterval *metav1.Duration `json:"predcitInterval"`
-	GRU             GRU
-	LSTM            LSTM
+	// LSTM GRU
+	Attr any
 }
 type LSTM struct {
 }
 type GRU struct {
-	// how far in second GRU will use to train
-	// +optional
-	TrainSize   int    `json:"trainSize"`
-	LookBack    int    `json:"lookBack"`
-	LookForward int    `json:"lookForward"`
-	Address     string `json:"address"`
-
-	//暂时把它当作，需要维持在的值
-	ScaleUpThreshold float64 `json:"scaleUpThreshold"`
-	//retrain interval
-	UpdateInterval *metav1.Duration `json:"updateInterval"`
+	Address        string
+	RespRecvAdress string `json:"resp_recv_address"`
+	LookBack       int    `json:"look_back"`
+	LookForward    int    `json:"look_forward"`
+	BatchSize      int    `json:"batch_size"`
+	TrainSize      int    `json:"train_size"`
+	Epochs         int    `json:"epochs"`
+	NLayers        int    `json:"n_layers"`
 }

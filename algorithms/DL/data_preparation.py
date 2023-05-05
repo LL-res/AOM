@@ -1,4 +1,6 @@
+import json
 import math
+import sys
 
 import numpy as np
 import torch
@@ -15,9 +17,21 @@ class GRUParameters:
 #gru_params = json.loads(sys.stdin.read(), object_hook=GRUParameters)
 
 
+def get_metrics(gru_params):
+    gru_params = json.loads(sys.stdin.read(), object_hook=GRUParameters)
+    if check_status(gru_params) & param.STATUS_PREDICT:
+        metrics = []
+        for index, val in enumerate(gru_params.predict_history):
+            metrics.append(val.metric)
+    if check_status(gru_params) & param.STATUS_TRAIN:
+        metrics = []
+        for index, val in enumerate(gru_params.train_history):
+            metrics.append(val.metric)
+        train_fake(metrics, gru_params.train_history[0].type)
+
 def train_data_prepare(metrics):
     """
-        param : metrcis list
+        :param metrics: list of float
     """
     #如修改标签维数，需再进行一次滑动窗口
     print("start preparing data for training")

@@ -5,6 +5,7 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	cached "k8s.io/client-go/discovery/cached"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -65,25 +66,20 @@ func newClient() error {
 	return nil
 }
 func (c *Client) NewScaleClient() (scale.ScalesGetter, error) {
-	apiGroupResources, err := restmapper.GetAPIGroupResources(c.ClientSet)
+	scaleClient, err := scale.NewForConfig(c.Config,
+		restmapper.NewDeferredDiscoveryRESTMapper(cached.NewMemCacheClient(c.ClientSet.Discovery())),
+		dynamic.LegacyAPIPathResolverFunc,
+		scale.NewDiscoveryScaleKindResolver(c.ClientSet.Discovery()))
 	if err != nil {
-		log.Println(err)
 		return nil, err
 	}
-	mapper := restmapper.NewDiscoveryRESTMapper(apiGroupResources)
-	resolver := scale.NewDiscoveryScaleKindResolver(c.ClientSet)
-
-	scalesGetter, err := scale.NewForConfig(c.Config, mapper, dynamic.LegacyAPIPathResolverFunc, resolver)
-	if err != nil {
-		log.Println(err)
-		return nil, err
-	}
-	return scalesGetter, nil
+	return scaleClient, nil
 
 }
 func (c *Client) GetReplica(namespace string, scaleTargetRef autoscalingv2.CrossVersionObjectReference) (int32, error) {
+	gvk := schema.FromAPIVersionAndKind(scaleTargetRef.APIVersion, "")
 	scaleObj, err := c.ScaleGetter.Scales(namespace).Get(context.TODO(), schema.GroupResource{
-		Group:    scaleTargetRef.APIVersion,
+		Group:    gvk.Group,
 		Resource: scaleTargetRef.Kind,
 	}, scaleTargetRef.Name, metav1.GetOptions{})
 	if err != nil {
@@ -92,13 +88,17 @@ func (c *Client) GetReplica(namespace string, scaleTargetRef autoscalingv2.Cross
 	return scaleObj.Spec.Replicas, nil
 }
 func (c *Client) SetReplica(namespace string, scaleTargetRef autoscalingv2.CrossVersionObjectReference, replica int32) error {
+	gvk := schema.FromAPIVersionAndKind(scaleTargetRef.APIVersion, "")
 	scaleObj, err := GlobalClient.ScaleGetter.Scales(namespace).Get(context.TODO(), schema.GroupResource{
-		Group:    scaleTargetRef.APIVersion,
+		Group:    gvk.Group,
 		Resource: scaleTargetRef.Kind,
 	}, scaleTargetRef.Name, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
 	scaleObj.Spec.Replicas = replica
 	_, err = GlobalClient.ScaleGetter.Scales(namespace).Update(context.TODO(), schema.GroupResource{
-		Group:    scaleTargetRef.APIVersion,
+		Group:    gvk.Group,
 		Resource: scaleTargetRef.Kind,
 	}, scaleObj, metav1.UpdateOptions{})
 

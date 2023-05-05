@@ -30,7 +30,7 @@ func (r *SocketReq) SetBody(body string) *SocketReq {
 	if r == nil {
 		return r
 	}
-	r.body = body
+	r.body = body + "\n"
 	return r
 }
 func (r *SocketReq) SetBufferSize(n int) *SocketReq {

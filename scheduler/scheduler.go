@@ -57,7 +57,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 				continue
 			}
 			// 获取metric以判断该predictor所对应的metric
-			metric, _ := s.Hide.MetricMap.Load(utils.GetNoModelKey(withModelKey))
+			metric, err := s.Hide.MetricMap.Load(utils.GetNoModelKey(withModelKey))
 			if err != nil {
 				log.Logger.Error(err, "")
 				continue
@@ -70,7 +70,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 					log.Logger.Error(err, "predict failed", "predictor", withModelKey)
 					return
 				}
-				modelReplica, err := scaler.GlobalScaler.GetModelReplica(pResult.StartMetric, scaler.Steady, metric.Target)
+				modelReplica, err := scaler.GlobalScaler.GetModelReplica(pResult.PredictMetric, pResult.StartMetric, scaler.Steady, metric.Target)
 				if err != nil {
 					log.Logger.Error(err, "get model replica failed", "key", withModelKey)
 					return

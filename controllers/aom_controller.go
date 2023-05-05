@@ -327,7 +327,7 @@ func (hdlr *Handler) handlePredictor(ctx context.Context) error {
 		pred, err := predictor.NewPredictor(predictor.Param{
 			WithModelKey:    WithModelKey,
 			MetricCollector: collect,
-			Model:           param.Model,
+			Model:           param.Model.Attr,
 			ScaleTargetRef:  hdlr.instance.Spec.ScaleTargetRef,
 		})
 		if err != nil {
