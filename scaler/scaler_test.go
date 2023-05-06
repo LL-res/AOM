@@ -35,10 +35,81 @@ func TestScaler_GetModelReplica(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		predictMetric = append(predictMetric, float64(i))
 	}
-	replica, err := TestScaler.GetModelReplica(predictMetric, 2, UnderThreshold, 3)
-	if err != nil {
-		t.Error(err)
-		return
+	tests := []struct {
+		predictMetric []float64
+		startMetric   float64
+		strategy      BaseStrategy
+		targetMetric  float64
+	}{
+		{
+			predictMetric: predictMetric,
+			startMetric:   2,
+			strategy:      UnderThreshold,
+			targetMetric:  3,
+		},
+		{
+			predictMetric: predictMetric,
+			startMetric:   2,
+			strategy:      Steady,
+			targetMetric:  3,
+		},
 	}
-	fmt.Println(replica)
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			replica, err := TestScaler.GetModelReplica(test.predictMetric, test.startMetric, test.strategy, test.targetMetric)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			fmt.Println(replica)
+		})
+	}
+
+}
+func TestScaler_GetMetricReplica(t *testing.T) {
+	modelReplica := [][]int32{
+		{0, 1, 1, 1, 2, 2, 2, 13, 3, 3},
+		{0, 2, 3, 5, 6, 8, 9, 11, 12, 14},
+	}
+	tests := []struct {
+		modelReplica [][]int32
+		strategy     ModelStrategy
+	}{
+		{
+			modelReplica: modelReplica,
+			strategy:     MaxStrategy,
+		},
+		{
+			modelReplica: modelReplica,
+			strategy:     MinStrategy,
+		},
+		{
+			modelReplica: modelReplica,
+			strategy:     MeanStrategy,
+		},
+	}
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			metricReplica := TestScaler.GetMetricReplica(test.modelReplica, test.strategy)
+			fmt.Println(metricReplica)
+		})
+	}
+}
+
+func TestScaler_GetScaleReplica(t *testing.T) {
+	tests := []struct {
+		ObjReplica []int32
+		strategy   ObjStrategy
+	}{
+		{
+			ObjReplica: []int32{0, 1, 1, 1, 2, 2, 2, 11, 3, 3},
+			strategy:   SelectMax,
+		},
+	}
+	for i, test := range tests {
+		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			replica := TestScaler.GetScaleReplica(test.ObjReplica, test.strategy)
+			fmt.Println(replica)
+		})
+	}
 }

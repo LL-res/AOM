@@ -7,9 +7,6 @@ import (
 	"github.com/LL-res/AOM/utils"
 )
 
-type Map[T any] struct {
-	Data map[string]T
-}
 type Hide struct {
 	//noModelKey
 	CollectorMap map[string]chan struct{}

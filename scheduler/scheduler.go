@@ -11,10 +11,6 @@ import (
 	"time"
 )
 
-var (
-	GlobalScheduler *Scheduler
-)
-
 type Scheduler struct {
 	*aomtype.Hide
 	interval time.Duration
@@ -62,6 +58,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 				log.Logger.Error(err, "")
 				continue
 			}
+			// 进行预测
 			go func(withModelKey string, pred predictor.Predictor) {
 				waitGroup.Add(1)
 				defer waitGroup.Done()
@@ -121,9 +118,9 @@ func (s *Scheduler) Run(ctx context.Context) {
 		}
 		//扩所容副本选择集合
 		objSet := utils.AddSlice(mReplicas...)
-		//最终决定的扩容副本数
+		//最终决定的扩容副本数，此刻的targetReplica并为除100，将除底数滞后以防止过多的类型转换
 		targetReplica := scaler.GlobalScaler.GetScaleReplica(objSet, scaler.SelectMax)
-		if err := scaler.GlobalScaler.UpTo(targetReplica); err != nil {
+		if err := scaler.GlobalScaler.UpTo(targetReplica / 100); err != nil {
 			log.Logger.Error(err, "scale up failed")
 		}
 	}

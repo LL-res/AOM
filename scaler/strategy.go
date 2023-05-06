@@ -20,27 +20,28 @@ func Steady(targetMetric, startMetric float64, startReplica int32, predictMetric
 	res := make([]int32, 0)
 	for _, m := range predictMetric {
 		//向上取整
-		res = append(res, int32(math.Floor(float64(startReplica)*(m/startMetric))))
+		res = append(res, int32(math.Ceil(float64(startReplica)*(m/startMetric))))
 	}
 	return res
 }
 
 func UnderThreshold(targetMetric, startMetric float64, startReplica int32, predictMetric []float64) []int32 {
 	res := make([]int32, 0)
-	for i, m := range predictMetric {
-		if m >= targetMetric {
-			if i == 0 {
-				res = append(res, int32(math.Floor(float64(startReplica)*(m/targetMetric))))
-				continue
-			}
-			res = append(res, int32(math.Floor(float64(res[i-1])*(m/targetMetric))))
-			continue
-		}
-		if i == 0 {
-			res = append(res, startReplica)
-			continue
-		}
-		res = append(res, res[i-1])
+	for _, m := range predictMetric {
+		res = append(res, int32(math.Ceil(m/targetMetric)))
+		//if m >= targetMetric {
+		//	if i == 0 {
+		//		res = append(res, int32(math.Floor(float64(startReplica)*(m/targetMetric))))
+		//		continue
+		//	}
+		//	res = append(res, int32(math.Floor(float64(res[i-1])*(m/targetMetric))))
+		//	continue
+		//}
+		//if i == 0 {
+		//	res = append(res, startReplica)
+		//	continue
+		//}
+		//res = append(res, res[i-1])
 	}
 	return res
 }
@@ -63,7 +64,11 @@ func MinStrategy(replicas [][]int32) []int32 {
 		return nil
 	}
 	res := make([]int32, len(replicas[0]))
-	for _, v := range replicas {
+	copy(res, replicas[0])
+	for idx, v := range replicas {
+		if idx == 0 {
+			continue
+		}
 		for i, vv := range v {
 			res[i] = utils.Min(vv, res[i])
 		}

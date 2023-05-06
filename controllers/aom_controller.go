@@ -21,6 +21,7 @@ import (
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/collector/prometheus_collector"
 	"github.com/LL-res/AOM/common/basetype"
+	"github.com/LL-res/AOM/common/consts"
 	"github.com/LL-res/AOM/log"
 	"github.com/LL-res/AOM/predictor"
 	"github.com/LL-res/AOM/scheduler"
@@ -80,7 +81,8 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		logger.Error(err, "failed to get instance")
 		return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
 	}
-	// 检查并启动collector
+	ctx = context.WithValue(ctx, consts.NAMESPACE, req.Namespace)
+
 	handler := NewHandler(instance, r)
 
 	if err := handler.Handle(ctx); err != nil {
@@ -144,10 +146,13 @@ func (hdlr *Handler) Handle(ctx context.Context) error {
 	if hdlr.instance.Status.Generation == hdlr.instance.Generation {
 		return nil
 	}
+	// 防止过多层if嵌套
 	var err error
+	// create instance
 	if hdlr.instance.Status.Generation == 0 {
 		err = hdlr.handleCreate(ctx)
 	}
+	// update instance
 	if hdlr.instance.Status.Generation != 0 &&
 		hdlr.instance.Generation > hdlr.instance.Status.Generation {
 		err = hdlr.handleUpdate(ctx)
@@ -185,6 +190,7 @@ func (hdlr *Handler) handleCreate(ctx context.Context) error {
 		log.Logger.Error(err, "fail to set collector server address")
 		return err
 	}
+	// 初始化instance中的Map
 	hdlr.instance.Init()
 	if err := hdlr.handleCollector(ctx); err != nil {
 		return err
