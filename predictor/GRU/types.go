@@ -35,4 +35,5 @@ type Response struct {
 	Loss       float64   `json:"loss"`
 	Trained    bool      `json:"trained"`
 	Prediction []float64 `json:"prediction"`
+	Error      string    `json:"error"`
 }

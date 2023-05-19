@@ -1,40 +1,44 @@
 package basetype
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"time"
 )
 
 type Metric struct {
 	ScaleDownConf ScaleDownConf `json:"scaleDownConf"`
 	Target        float64       `json:"target"`
-	Weight        int32         `json:"weight"`
-	Name          string        `json:"name"`
-	Unit          string        `json:"unit"`
-	Query         string        `json:"query"`
+	// [0,100] each metric weight should have 100 in total
+	Weight int32  `json:"weight"`
+	Name   string `json:"name"`
+	Unit   string `json:"unit"`
+	Query  string `json:"query"`
 }
 type ScaleDownConf struct {
 	Threshold float64       `json:"threshold"`
 	Duration  time.Duration `json:"duration"`
 }
 type Model struct {
-	Type           string           // GRU LSTM
-	NeedTrain      bool             //
-	UpdateInterval *metav1.Duration `json:"updateInterval"`
-	// 移至metric处
-	PredcitInterval *metav1.Duration `json:"predcitInterval"`
-	// LSTM GRU
+	// Type is used to identify the Model and to assert the Attr type
+	Type      string
+	NeedTrain bool
+	// if NeedTrain is true then UpdateInterval show when to update the model
+	UpdateInterval time.Duration `json:"updateInterval"`
+	// e.g. LSTM,GRU
 	Attr any
 }
+
+// model Attr
 type LSTM struct {
 }
+
 type GRU struct {
 	Address        string
 	RespRecvAdress string `json:"resp_recv_address"`
 	LookBack       int    `json:"look_back"`
-	LookForward    int    `json:"look_forward"`
-	BatchSize      int    `json:"batch_size"`
-	TrainSize      int    `json:"train_size"`
-	Epochs         int    `json:"epochs"`
-	NLayers        int    `json:"n_layers"`
+	// all Lookforward should be same
+	LookForward int `json:"look_forward"`
+	BatchSize   int `json:"batch_size"`
+	TrainSize   int `json:"train_size"`
+	Epochs      int `json:"epochs"`
+	NLayers     int `json:"n_layers"`
 }

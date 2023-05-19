@@ -45,10 +45,12 @@ type AOMSpec struct {
 	MaxReplicas int32                                `json:"maxReplicas"`
 	Collector   Collector                            `json:"collector"`
 	Metrics     map[basetype.Metric][]basetype.Model `json:"metrics"`
-	Interval    time.Duration                        `json:"interval"`
+	// the interval aom to call all the model
+	Interval time.Duration `json:"interval"`
 }
 type Collector struct {
-	Address        string        `json:"address"`
+	Address string `json:"address"`
+	// LookForward * ScrapInterval = the time to look forward
 	ScrapeInterval time.Duration `json:"scrapeInterval"`
 }
 

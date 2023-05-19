@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/common/basetype"
 	"github.com/LL-res/AOM/common/consts"
@@ -158,7 +159,6 @@ func (g *GRU) Train(ctx context.Context) error {
 		if err := g.WaitAndUpdate(ctx); err != nil {
 			runtime.Goexit()
 		}
-
 	}()
 
 	return nil
@@ -219,6 +219,10 @@ func (g *GRU) WaitAndUpdate(ctx context.Context) error {
 	if err != nil {
 		log.Println(err)
 		return err
+	}
+	if resp.Error != "" {
+		log.Println(resp.Error)
+		return fmt.Errorf("python error : %s", resp.Error)
 	}
 	log.Println(resp)
 	g.readyToPredict.Store(resp.Trained)

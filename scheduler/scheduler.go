@@ -23,7 +23,8 @@ type Conf struct {
 
 func New(Hide *aomtype.Hide, interval time.Duration) *Scheduler {
 	return &Scheduler{
-		Hide:     Hide,
+		Hide: Hide,
+		// the interval AOM call all the models
 		interval: interval,
 	}
 }
@@ -38,6 +39,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
 	// TODO 获取当前时间判断是否需要对模型进行训练
+
 	for _ = range ticker.C {
 		waitGroup := sync.WaitGroup{}
 
@@ -78,6 +80,12 @@ func (s *Scheduler) Run(ctx context.Context) {
 				}
 			}(withModelKey, pred)
 			if model.NeedTrain {
+				// the err stands for if lastTime exists
+				lastTime, err := s.Hide.TrainHistory.Load(withModelKey)
+				if !(err != nil || lastTime.Add(model.UpdateInterval).Before(time.Now())) {
+					continue
+				}
+				// train use asynchronous,so it won`t block the process for too long
 				if err := pred.Train(ctx); err != nil {
 					log.Logger.Error(err, "train model failed", "key", withModelKey)
 					continue

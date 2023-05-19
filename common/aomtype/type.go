@@ -5,10 +5,12 @@ import (
 	"github.com/LL-res/AOM/common/basetype"
 	"github.com/LL-res/AOM/predictor"
 	"github.com/LL-res/AOM/utils"
+	"time"
 )
 
 type Hide struct {
 	//noModelKey
+	//use to close collector dynamically
 	CollectorMap map[string]chan struct{}
 	//noModelKey
 	MetricMap *utils.ConcurrentMap[*basetype.Metric]
@@ -18,4 +20,7 @@ type Hide struct {
 	CollectorWorkerMap *utils.ConcurrentMap[collector.MetricCollector]
 	//withModelKey
 	ModelMap *utils.ConcurrentMap[*basetype.Model]
+	//withModelKey
+	//store the latest timestamp the model trained
+	TrainHistory *utils.ConcurrentMap[time.Time]
 }
