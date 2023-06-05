@@ -1,12 +1,8 @@
 package basetype
 
-import (
-	"time"
-)
-
 type Metric struct {
 	ScaleDownConf ScaleDownConf `json:"scaleDownConf"`
-	Target        float64       `json:"target"`
+	Target        string        `json:"target"`
 	// [0,100] each metric weight should have 100 in total
 	Weight int32  `json:"weight"`
 	Name   string `json:"name"`
@@ -14,17 +10,27 @@ type Metric struct {
 	Query  string `json:"query"`
 }
 type ScaleDownConf struct {
-	Threshold float64       `json:"threshold"`
-	Duration  time.Duration `json:"duration"`
+	Threshold string `json:"threshold"`
+	Duration  int    `json:"duration"`
 }
 type Model struct {
 	// Type is used to identify the Model and to assert the Attr type
-	Type      string
-	NeedTrain bool
+	Type      string `json:"type,omitempty"`
+	NeedTrain bool   `json:"needTrain,omitempty"`
 	// if NeedTrain is true then UpdateInterval show when to update the model
-	UpdateInterval time.Duration `json:"updateInterval"`
+	UpdateInterval int `json:"updateInterval,omitempty"`
 	// e.g. LSTM,GRU
-	Attr any
+	Attr map[string]string `json:"attr,omitempty"`
+}
+
+func (m *Model) DeepCopyInto(out *Model) {
+	out.Type = m.Type
+	out.NeedTrain = m.NeedTrain
+	out.UpdateInterval = m.UpdateInterval
+	tmap := make(map[string]string)
+	for k, v := range m.Attr {
+		tmap[k] = v
+	}
 }
 
 // model Attr
@@ -32,7 +38,7 @@ type LSTM struct {
 }
 
 type GRU struct {
-	Address        string
+	Address        string `json:"address"`
 	RespRecvAdress string `json:"resp_recv_address"`
 	LookBack       int    `json:"look_back"`
 	// all Lookforward should be same

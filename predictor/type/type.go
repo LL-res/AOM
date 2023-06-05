@@ -9,6 +9,5 @@ type Base struct {
 type PredictResult struct {
 	StartMetric   float64
 	Loss          float64
-	StartReplica  int32
 	PredictMetric []float64
 }

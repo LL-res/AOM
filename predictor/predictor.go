@@ -2,7 +2,9 @@ package predictor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"github.com/LL-res/AOM/algorithms/holt_winter"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/common/basetype"
 	"github.com/LL-res/AOM/common/consts"
@@ -15,7 +17,7 @@ import (
 type Param struct {
 	WithModelKey    string
 	MetricCollector collector.MetricCollector
-	Model           any
+	Model           map[string]string
 	ScaleTargetRef  autoscalingv2.CrossVersionObjectReference
 }
 
@@ -69,7 +71,22 @@ type PredictResult struct {
 func NewPredictor(param Param) (Predictor, error) {
 	switch utils.GetModelType(param.WithModelKey) {
 	case consts.GRU:
-		pred, err := GRU.New(param.MetricCollector, param.Model.(basetype.GRU), param.WithModelKey)
+		gruParam := basetype.GRU{}
+		temp, err := json.Marshal(param.Model)
+		if err != nil {
+			return nil, err
+		}
+		err = json.Unmarshal(temp, &gruParam)
+		if err != nil {
+			return nil, err
+		}
+		pred, err := GRU.New(param.MetricCollector, gruParam, param.WithModelKey)
+		if err != nil {
+			return nil, err
+		}
+		return pred, nil
+	case consts.HOLT_WINTER:
+		pred, err := holt_winter.New(param.MetricCollector, param.Model, param.WithModelKey)
 		if err != nil {
 			return nil, err
 		}

@@ -18,13 +18,16 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/collector/prometheus_collector"
 	"github.com/LL-res/AOM/common/basetype"
 	"github.com/LL-res/AOM/common/consts"
+	"github.com/LL-res/AOM/common/store"
 	"github.com/LL-res/AOM/log"
 	"github.com/LL-res/AOM/predictor"
 	"github.com/LL-res/AOM/scheduler"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sync"
 	"time"
@@ -82,7 +85,7 @@ func (r *AOMReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return reconcile.Result{RequeueAfter: defaultErrorRetryPeriod}, err
 	}
 	ctx = context.WithValue(ctx, consts.NAMESPACE, req.Namespace)
-
+	ctx = context.WithValue(ctx, consts.NAME, req.Name)
 	handler := NewHandler(instance, r)
 
 	if err := handler.Handle(ctx); err != nil {
@@ -103,11 +106,16 @@ func (r *AOMReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func StartWorker(ctx context.Context, worker collector.MetricCollector, aom *automationv1.AOM, stopC chan struct{}) {
-	ticker := time.NewTicker(aom.Spec.Collector.ScrapeInterval)
+	scrapeInterval := time.Second * time.Duration(aom.Spec.Collector.ScrapeInterval)
+	ticker := time.NewTicker(scrapeInterval)
 	end := false
 	defer ticker.Stop()
+	hide := store.GetHide(types.NamespacedName{
+		Namespace: aom.Namespace,
+		Name:      aom.ObjectMeta.Name,
+	})
 	for _ = range ticker.C {
-		if _, err := aom.CollectorWorkerMap.Load(worker.NoModelKey()); err != nil || end {
+		if _, err := hide.CollectorWorkerMap.Load(worker.NoModelKey()); err != nil || end {
 			break
 		}
 		select {
@@ -191,7 +199,7 @@ func (hdlr *Handler) handleCreate(ctx context.Context) error {
 		return err
 	}
 	// 初始化instance中的Map
-	hdlr.instance.Init()
+	//hdlr.instance.Init()
 	if err := hdlr.handleCollector(ctx); err != nil {
 		return err
 	}
@@ -203,10 +211,12 @@ func (hdlr *Handler) handleCreate(ctx context.Context) error {
 		return err
 	}
 
-	if hdlr.instance.Scheduler == nil {
-		hdlr.instance.Scheduler = scheduler.New(&hdlr.instance.Hide, hdlr.instance.Spec.Interval)
-	}
-	go hdlr.instance.Scheduler.Run(ctx)
+	schdlr := scheduler.GetOrNew(types.NamespacedName{
+		Namespace: ctx.Value(consts.NAMESPACE).(string),
+		Name:      ctx.Value(consts.NAME).(string),
+	}, time.Second*time.Duration(hdlr.instance.Spec.Interval))
+
+	go schdlr.Run(ctx)
 
 	return nil
 }
@@ -220,17 +230,20 @@ func (hdlr *Handler) handleCollector(ctx context.Context) error {
 	// 其中的元素是格式化之后的metric，格式为: name/unit/query
 	toDelete := make([]string, 0)
 	toAdd := make([]basetype.Metric, 0)
-
+	hide := store.GetHide(types.NamespacedName{
+		Namespace: ctx.Value(consts.NAMESPACE).(string),
+		Name:      ctx.Value(consts.NAME).(string),
+	})
 	// spec中存在，但map中不存在，进行更新
-	for metric := range hdlr.instance.Spec.Metrics {
-		if _, ok := hdlr.instance.CollectorMap[metric.NoModelKey()]; !ok {
+	for _, metric := range hdlr.instance.Spec.Metrics {
+		if _, ok := hide.CollectorMap[metric.NoModelKey()]; !ok {
 			toAdd = append(toAdd, metric)
 		}
 	}
 	// map 中存在但 spec中不存在，进行删除
-	for k := range hdlr.instance.CollectorMap {
+	for k := range hide.CollectorMap {
 		exist := false
-		for metric := range hdlr.instance.Spec.Metrics {
+		for _, metric := range hdlr.instance.Spec.Metrics {
 			if metric.NoModelKey() == k {
 				exist = true
 				break
@@ -242,8 +255,8 @@ func (hdlr *Handler) handleCollector(ctx context.Context) error {
 	}
 	for _, v := range toDelete {
 		// 对collecter worker进行退出控制
-		close(hdlr.instance.CollectorMap[v])
-		hdlr.instance.CollectorWorkerMap.Delete(v)
+		close(hide.CollectorMap[v])
+		hide.CollectorWorkerMap.Delete(v)
 	}
 	for _, m := range toAdd {
 		pCollector.AddCustomMetrics(m)
@@ -252,14 +265,14 @@ func (hdlr *Handler) handleCollector(ctx context.Context) error {
 			log.Logger.Error(err, "fail to create metric collector worker")
 			return err
 		}
-		hdlr.instance.CollectorWorkerMap.Store(m.NoModelKey(), worker)
+		hide.CollectorWorkerMap.Store(m.NoModelKey(), worker)
 		stopC := make(chan struct{})
-		hdlr.instance.CollectorMap[m.NoModelKey()] = stopC
+		hide.CollectorMap[m.NoModelKey()] = stopC
 		go StartWorker(ctx, worker, hdlr.instance, stopC)
 	}
 	// 更新status
 	hdlr.instance.Status.StatusCollectors = make([]automationv1.StatusCollector, 0, len(hdlr.instance.Spec.Metrics))
-	for metric := range hdlr.instance.Spec.Metrics {
+	for _, metric := range hdlr.instance.Spec.Metrics {
 		// 此处仅作describe时显示
 		hdlr.instance.Status.StatusCollectors = append(hdlr.instance.Status.StatusCollectors, automationv1.StatusCollector{
 			Name:       metric.Name,
@@ -280,36 +293,54 @@ type mdlMtrc struct {
 }
 
 func (hdlr *Handler) handlePredictor(ctx context.Context) error {
+	hide := store.GetHide(types.NamespacedName{
+		Namespace: ctx.Value(consts.NAMESPACE).(string),
+		Name:      ctx.Value(consts.NAMESPACE).(string),
+	})
 	// 扫一遍spec 查看现在所需的
 
 	// sepc 中存在，map中不存在
 	toAdd := make([]mdlMtrc, 0)
-	for mtrc, mdls := range hdlr.instance.Spec.Metrics {
-		for _, model := range mdls {
-			if _, err := hdlr.instance.PredictorMap.Load(mtrc.WithModelKey(model.Type)); err != nil {
+	for key, models := range hdlr.instance.Spec.Models {
+		metric, ok := hdlr.instance.Spec.Metrics[key]
+		if !ok {
+			// TODO validation
+			log.Logger.Error(errors.New("not found metric"), "validate failed")
+			return errors.New("not found metric")
+		}
+		for _, model := range models {
+			if _, err := hide.PredictorMap.Load(metric.WithModelKey(model.Type)); err != nil {
 				toAdd = append(toAdd, mdlMtrc{
 					Model:  model,
-					Metric: mtrc,
+					Metric: metric,
 				})
 			}
 		}
 	}
+
 	// map 中存在，spec中不存在
 	toDelete := make([]string, 0)
 	// 先将spec中的key都放入tempMap中，再进行比较以降低复杂度
 	tempMap := make(map[string]struct{})
-	for mtrc, mdls := range hdlr.instance.Spec.Metrics {
-		for _, model := range mdls {
-			tempMap[mtrc.WithModelKey(model.Type)] = struct{}{}
+	for key, models := range hdlr.instance.Spec.Models {
+		metric, ok := hdlr.instance.Spec.Metrics[key]
+		if !ok {
+			// TODO validation
+			log.Logger.Error(errors.New("not found metric"), "validate failed")
+			return errors.New("not found metric")
+		}
+		for _, model := range models {
+			tempMap[metric.WithModelKey(model.Type)] = struct{}{}
 		}
 	}
-	for k := range hdlr.instance.PredictorMap.Data {
+
+	for k := range hide.PredictorMap.Data {
 		if _, ok := tempMap[k]; !ok {
 			toDelete = append(toDelete, k)
 		}
 	}
 	for _, wmk := range toDelete {
-		hdlr.instance.PredictorMap.Delete(wmk)
+		hide.PredictorMap.Delete(wmk)
 		//nmk := utils.GetNoModelKey(wmk)
 		//找到metric对应的那一组predictor
 		//metric, err := hdlr.instance.MetricMap.Get(nmk)
@@ -325,7 +356,7 @@ func (hdlr *Handler) handlePredictor(ctx context.Context) error {
 	}
 	for _, param := range toAdd {
 		WithModelKey := param.WithModelKey(param.Model.Type)
-		collect, err := hdlr.instance.CollectorWorkerMap.Load(param.NoModelKey())
+		collect, err := hide.CollectorWorkerMap.Load(param.NoModelKey())
 		if err != nil {
 			log.Logger.Error(err, "a must behaviour failed,predictor can not find the corresponding collector")
 			return err
@@ -340,7 +371,7 @@ func (hdlr *Handler) handlePredictor(ctx context.Context) error {
 			log.Logger.Error(err, "new predictor failed")
 			return err
 		}
-		hdlr.instance.PredictorMap.Store(param.WithModelKey(param.Type), pred)
+		hide.PredictorMap.Store(param.WithModelKey(param.Type), pred)
 		//metric, err := hdlr.instance.MetricMap.Get(param.NoModelKey())
 		//if err != nil {
 		//	log.Logger.Error(err, "a must behaviour failed,predictor can not find the corresponding metric")

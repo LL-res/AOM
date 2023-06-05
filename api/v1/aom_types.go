@@ -17,14 +17,9 @@ limitations under the License.
 package v1
 
 import (
-	AOMtype "github.com/LL-res/AOM/common/aomtype"
 	"github.com/LL-res/AOM/common/basetype"
-	"github.com/LL-res/AOM/scheduler"
-	"github.com/LL-res/AOM/utils"
-
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"time"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -42,16 +37,17 @@ type AOMSpec struct {
 
 	// +kubebuilder:validation:Minimum=1
 	// +optional
-	MaxReplicas int32                                `json:"maxReplicas"`
-	Collector   Collector                            `json:"collector"`
-	Metrics     map[basetype.Metric][]basetype.Model `json:"metrics"`
+	MaxReplicas int32                       `json:"maxReplicas"`
+	Collector   Collector                   `json:"collector"`
+	Metrics     map[string]basetype.Metric  `json:"metrics"`
+	Models      map[string][]basetype.Model `json:"models"`
 	// the interval aom to call all the model
-	Interval time.Duration `json:"interval"`
+	Interval int `json:"interval"`
 }
 type Collector struct {
 	Address string `json:"address"`
 	// LookForward * ScrapInterval = the time to look forward
-	ScrapeInterval time.Duration `json:"scrapeInterval"`
+	ScrapeInterval int `json:"scrapeInterval"`
 }
 
 //type Metric struct {
@@ -88,45 +84,45 @@ type Collector struct {
 //	UpdateInterval *metav1.Duration `json:"updateInterval"`
 //}
 
-type PredictorHistory struct {
-	PredictHistory []time.Time
-	TrainHistory   []time.Time
-}
-
-func appendHistory(history *[]time.Time, t time.Time) {
-	if history == nil {
-		*history = make([]time.Time, 0, 5)
-	}
-
-	*history = append(*history, t)
-
-	if len(*history) > 5 {
-		*history = (*history)[1:]
-	}
-	return
-}
-
-func (p *PredictorHistory) CanTrain(now time.Time, interval time.Duration) bool {
-	if p.TrainHistory == nil || len(p.TrainHistory) == 0 {
-		return true
-	}
-	return p.TrainHistory[len(p.TrainHistory)-1].Add(interval).Before(now)
-}
-
-func (p *PredictorHistory) CanPredict(now time.Time, interval time.Duration) bool {
-	if p.PredictHistory == nil || len(p.PredictHistory) == 0 {
-		return true
-	}
-	return p.PredictHistory[len(p.PredictHistory)-1].Add(interval).Before(now)
-}
-
-func (p *PredictorHistory) AppendPredictorHistory(t time.Time) {
-	appendHistory(&p.PredictHistory, t)
-}
-
-func (p *PredictorHistory) AppendTrainHistory(t time.Time) {
-	appendHistory(&p.TrainHistory, t)
-}
+//type PredictorHistory struct {
+//	PredictHistory []time.Time
+//	TrainHistory   []time.Time
+//}
+//
+//func appendHistory(history *[]time.Time, t time.Time) {
+//	if history == nil {
+//		*history = make([]time.Time, 0, 5)
+//	}
+//
+//	*history = append(*history, t)
+//
+//	if len(*history) > 5 {
+//		*history = (*history)[1:]
+//	}
+//	return
+//}
+//
+//func (p *PredictorHistory) CanTrain(now time.Time, interval time.Duration) bool {
+//	if p.TrainHistory == nil || len(p.TrainHistory) == 0 {
+//		return true
+//	}
+//	return p.TrainHistory[len(p.TrainHistory)-1].Add(interval).Before(now)
+//}
+//
+//func (p *PredictorHistory) CanPredict(now time.Time, interval time.Duration) bool {
+//	if p.PredictHistory == nil || len(p.PredictHistory) == 0 {
+//		return true
+//	}
+//	return p.PredictHistory[len(p.PredictHistory)-1].Add(interval).Before(now)
+//}
+//
+//func (p *PredictorHistory) AppendPredictorHistory(t time.Time) {
+//	appendHistory(&p.PredictHistory, t)
+//}
+//
+//func (p *PredictorHistory) AppendTrainHistory(t time.Time) {
+//	appendHistory(&p.TrainHistory, t)
+//}
 
 // AOMStatus defines the observed state of AOM
 type AOMStatus struct {
@@ -139,8 +135,8 @@ type AOMStatus struct {
 	//PredictorMap     map[string]struct{} `json:"-"`
 	StatusCollectors []StatusCollector `json:"collectors"`
 	// withModelKey
-	PredictorHistory utils.ConcurrentMap[*PredictorHistory]
-	Generation       int64 `json:"generation"`
+	//PredictorHistory utils.ConcurrentMap[*PredictorHistory] `json:"-"`
+	Generation int64 `json:"generation"`
 }
 type StatusCollector struct {
 	Name       string `json:"name,omitempty"`
@@ -158,9 +154,6 @@ type AOM struct {
 
 	Spec   AOMSpec   `json:"spec,omitempty"`
 	Status AOMStatus `json:"status,omitempty"`
-
-	AOMtype.Hide         `json:"-"`
-	*scheduler.Scheduler `json:"-"`
 }
 
 //+kubebuilder:object:root=true

@@ -2,17 +2,19 @@ package scheduler
 
 import (
 	"context"
-	aomtype "github.com/LL-res/AOM/common/aomtype"
+	"github.com/LL-res/AOM/common/store"
 	"github.com/LL-res/AOM/log"
 	"github.com/LL-res/AOM/predictor"
 	"github.com/LL-res/AOM/scaler"
 	"github.com/LL-res/AOM/utils"
+	"k8s.io/apimachinery/pkg/types"
+	"strconv"
 	"sync"
 	"time"
 )
 
 type Scheduler struct {
-	*aomtype.Hide
+	Name     types.NamespacedName
 	interval time.Duration
 }
 type Conf struct {
@@ -21,9 +23,17 @@ type Conf struct {
 	predictInterval time.Duration
 }
 
-func New(Hide *aomtype.Hide, interval time.Duration) *Scheduler {
+var schedulers map[types.NamespacedName]*Scheduler
+
+func GetOrNew(name types.NamespacedName, interval time.Duration) *Scheduler {
+	if nil == schedulers {
+		schedulers[name] = New(name, interval)
+	}
+	return schedulers[name]
+}
+func New(name types.NamespacedName, interval time.Duration) *Scheduler {
 	return &Scheduler{
-		Hide: Hide,
+		Name: name,
 		// the interval AOM call all the models
 		interval: interval,
 	}
@@ -34,6 +44,9 @@ type ResPair struct {
 	withModelKey string
 }
 
+func (s *Scheduler) DeepCopyInto(out *Scheduler) {
+
+}
 func (s *Scheduler) Run(ctx context.Context) {
 	// interval 为instance配置
 	ticker := time.NewTicker(s.interval)
@@ -42,20 +55,20 @@ func (s *Scheduler) Run(ctx context.Context) {
 
 	for _ = range ticker.C {
 		waitGroup := sync.WaitGroup{}
+		hide := store.GetHide(s.Name)
+		hide.PredictorMap.Lock()
 
-		s.Hide.PredictorMap.Lock()
+		ResChan := make(chan ResPair, len(hide.PredictorMap.Data))
 
-		ResChan := make(chan ResPair, len(s.Hide.PredictorMap.Data))
-
-		for withModelKey, pred := range s.Hide.PredictorMap.Data {
+		for withModelKey, pred := range hide.PredictorMap.Data {
 			// 获取model以判断是否需要进行训练
-			model, err := s.Hide.ModelMap.Load(withModelKey)
+			model, err := hide.ModelMap.Load(withModelKey)
 			if err != nil {
 				log.Logger.Error(err, "")
 				continue
 			}
 			// 获取metric以判断该predictor所对应的metric
-			metric, err := s.Hide.MetricMap.Load(utils.GetNoModelKey(withModelKey))
+			metric, err := hide.MetricMap.Load(utils.GetNoModelKey(withModelKey))
 			if err != nil {
 				log.Logger.Error(err, "")
 				continue
@@ -69,7 +82,11 @@ func (s *Scheduler) Run(ctx context.Context) {
 					log.Logger.Error(err, "predict failed", "predictor", withModelKey)
 					return
 				}
-				modelReplica, err := scaler.GlobalScaler.GetModelReplica(pResult.PredictMetric, pResult.StartMetric, scaler.Steady, metric.Target)
+				targetVal, err := strconv.ParseFloat(metric.Target, 64)
+				if err != nil {
+					log.Logger.Error(err, "strconv failed")
+				}
+				modelReplica, err := scaler.GlobalScaler.GetModelReplica(pResult.PredictMetric, pResult.StartMetric, scaler.Steady, targetVal)
 				if err != nil {
 					log.Logger.Error(err, "get model replica failed", "key", withModelKey)
 					return
@@ -81,8 +98,8 @@ func (s *Scheduler) Run(ctx context.Context) {
 			}(withModelKey, pred)
 			if model.NeedTrain {
 				// the err stands for if lastTime exists
-				lastTime, err := s.Hide.TrainHistory.Load(withModelKey)
-				if !(err != nil || lastTime.Add(model.UpdateInterval).Before(time.Now())) {
+				lastTime, err := hide.TrainHistory.Load(withModelKey)
+				if !(err != nil || lastTime.Add(time.Second*time.Duration(model.UpdateInterval)).Before(time.Now())) {
 					continue
 				}
 				// train use asynchronous,so it won`t block the process for too long
@@ -92,7 +109,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 				}
 			}
 		}
-		s.Hide.PredictorMap.Unlock()
+		hide.PredictorMap.Unlock()
 		waitGroup.Wait()
 
 		//每一个metric对应的model的所有的预测副本数
@@ -116,7 +133,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 		mReplicas := make([][]int32, 0, len(metricReplicas))
 		for noModelKey, metricReplica := range metricReplicas {
 			// 获取加权系数
-			metric, err := s.Hide.MetricMap.Load(noModelKey)
+			metric, err := hide.MetricMap.Load(noModelKey)
 			if err != nil {
 				log.Logger.Error(err, "")
 				continue
