@@ -27,7 +27,9 @@ import (
 	"github.com/LL-res/AOM/log"
 	"github.com/LL-res/AOM/predictor"
 	"github.com/LL-res/AOM/scheduler"
+	"github.com/LL-res/AOM/utils"
 	"k8s.io/apimachinery/pkg/types"
+	"reflect"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sync"
 	"time"
@@ -183,13 +185,14 @@ func (hdlr *Handler) handleUpdate(ctx context.Context) error {
 	if err := hdlr.handleMetrics(ctx); err != nil {
 		return err
 	}
-	if err := hdlr.handleModels(ctx); err != nil {
+	changes, err := hdlr.handleModels(ctx)
+	if err != nil {
 		return err
 	}
 	if err := hdlr.handleCollector(ctx); err != nil {
 		return err
 	}
-	if err := hdlr.handlePredictor(ctx); err != nil {
+	if err := hdlr.handlePredictor(ctx, changes); err != nil {
 		return err
 	}
 	return nil
@@ -209,7 +212,8 @@ func (hdlr *Handler) handleCreate(ctx context.Context) error {
 		return err
 	}
 
-	if err := hdlr.handleModels(ctx); err != nil {
+	changes, err := hdlr.handleModels(ctx)
+	if err != nil {
 		return err
 	}
 
@@ -217,7 +221,7 @@ func (hdlr *Handler) handleCreate(ctx context.Context) error {
 		return err
 	}
 
-	if err := hdlr.handlePredictor(ctx); err != nil {
+	if err := hdlr.handlePredictor(ctx, changes); err != nil {
 		return err
 	}
 
@@ -302,7 +306,7 @@ type mdlMtrc struct {
 	basetype.Metric
 }
 
-func (hdlr *Handler) handlePredictor(ctx context.Context) error {
+func (hdlr *Handler) handlePredictor(ctx context.Context, changeMap map[string]basetype.Model) error {
 	hide := store.GetHide(types.NamespacedName{
 		Namespace: ctx.Value(consts.NAMESPACE).(string),
 		Name:      ctx.Value(consts.NAME).(string),
@@ -388,8 +392,26 @@ func (hdlr *Handler) handlePredictor(ctx context.Context) error {
 		//	return err
 		//}
 		//hdlr.predictors[metric] = append(hdlr.predictors[metric], pred)
-
 	}
+	for wmk, model := range changeMap {
+		collect, err := hide.CollectorWorkerMap.Load(utils.GetNoModelKey(wmk))
+		if err != nil {
+			log.Logger.Error(err, "a must behaviour failed,predictor can not find the corresponding collector")
+			return err
+		}
+		pred, err := predictor.NewPredictor(predictor.Param{
+			WithModelKey:    wmk,
+			MetricCollector: collect,
+			Model:           model.Attr,
+			ScaleTargetRef:  hdlr.instance.Spec.ScaleTargetRef,
+		})
+		if err != nil {
+			log.Logger.Error(err, "new predictor failed")
+			return err
+		}
+		hide.PredictorMap.Store(wmk, pred)
+	}
+
 	//TODO 展示部分的status还未完成
 	if err := hdlr.Status().Update(ctx, hdlr.instance); err != nil {
 		log.Logger.Error(err, "update status failed")
@@ -419,30 +441,49 @@ func (hdlr *Handler) handleMetrics(ctx context.Context) error {
 			hide.MetricMap.Delete(nmk)
 		}
 	}
+	//change
+	for _, metric := range hdlr.instance.Spec.Metrics {
+		old, err := hide.MetricMap.Load(metric.NoModelKey())
+		if err != nil {
+			log.Logger.Error(err, "a must behaviour failed")
+			return err
+		}
+		if reflect.DeepEqual(*old, metric) {
+			return nil
+		}
+		hide.MetricMap.Store(metric.NoModelKey(), &metric)
+	}
 	return nil
 }
 
-func (hdlr *Handler) handleModels(ctx context.Context) error {
+func (hdlr *Handler) handleModels(ctx context.Context) (map[string]basetype.Model, error) {
 	hide := store.GetHide(types.NamespacedName{
 		Namespace: ctx.Value(consts.NAMESPACE).(string),
 		Name:      ctx.Value(consts.NAME).(string),
 	})
 	//delete
 	tempMap := make(map[string]struct{})
-	//Add
+	//Add or change
+	changeMap := make(map[string]basetype.Model)
 	for specKey, models := range hdlr.instance.Spec.Models {
 		metric, ok := hdlr.instance.Spec.Metrics[specKey]
 		if !ok {
-			return errors.New("orphan model")
+			return nil, errors.New("orphan model")
 		}
 		for _, model := range models {
 			wmk := metric.WithModelKey(model.Type)
 			tempMap[wmk] = struct{}{}
-			if _, err := hide.ModelMap.Load(wmk); err != nil {
+			old, err := hide.ModelMap.Load(wmk)
+			if err != nil {
 				hide.ModelMap.Store(wmk, &model)
+				continue
 			}
+			if reflect.DeepEqual(*old, model) {
+				continue
+			}
+			hide.ModelMap.Store(wmk, &model)
+			changeMap[wmk] = model
 		}
-
 	}
 	//delete
 	for wmk := range hide.ModelMap.Data {
@@ -450,6 +491,5 @@ func (hdlr *Handler) handleModels(ctx context.Context) error {
 			hide.ModelMap.Delete(wmk)
 		}
 	}
-
-	return nil
+	return changeMap, nil
 }

@@ -119,6 +119,11 @@ func (s *Scheduler) Run(ctx context.Context) {
 		modelReplicas := make(map[string][][]int32)
 
 		close(ResChan)
+		// no prediction result yet
+		if len(ResChan) == 0 {
+			log.Logger.Info("no predictor results received")
+			continue
+		}
 		for pair := range ResChan {
 			noMoedlKey := utils.GetNoModelKey(pair.withModelKey)
 			if modelReplicas[noMoedlKey] == nil {

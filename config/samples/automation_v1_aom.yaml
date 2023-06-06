@@ -15,7 +15,7 @@ spec:
   interval: 30
   metrics:
     entitiy1:
-      name: http_request
+      name: http_request_01
       query: sum(delta(http_requests_total[30s]))
       scaleDownConf:
         duration: 500
