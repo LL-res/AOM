@@ -14,16 +14,16 @@ type Hide struct {
 	//use to close collector dynamically
 	CollectorMap map[string]chan struct{}
 	//noModelKey
-	MetricMap *utils.ConcurrentMap[*basetype.Metric]
+	MetricMap utils.ConcurrentMap[*basetype.Metric]
 	//withModelKey
-	PredictorMap *utils.ConcurrentMap[predictor.Predictor]
+	PredictorMap utils.ConcurrentMap[predictor.Predictor]
 	//noModelKey
-	CollectorWorkerMap *utils.ConcurrentMap[collector.MetricCollector]
+	CollectorWorkerMap utils.ConcurrentMap[collector.MetricCollector]
 	//withModelKey
-	ModelMap *utils.ConcurrentMap[*basetype.Model]
+	ModelMap utils.ConcurrentMap[*basetype.Model]
 	//withModelKey
 	//store the latest timestamp the model trained
-	TrainHistory *utils.ConcurrentMap[time.Time]
+	TrainHistory utils.ConcurrentMap[time.Time]
 }
 
 type AOMStore map[types.NamespacedName]*Hide

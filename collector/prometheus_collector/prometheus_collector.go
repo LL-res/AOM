@@ -62,6 +62,10 @@ func (p *Promc) CreateWorker(MetricType basetype.Metric) (collector.MetricCollec
 		return nil, errors.New("undefined metric type")
 	}
 	return &worker{
+		MetricType: collector.MetricType{
+			Name: MetricType.Name,
+			Unit: MetricType.Unit,
+		},
 		promql: promql,
 		data:   make([]collector.Metric, 0),
 		client: p.client,
@@ -94,7 +98,7 @@ func (w *worker) Collect() error {
 func (w *worker) Send() []collector.Metric {
 	res := make([]collector.Metric, len(w.data))
 	copy(res, w.data)
-	//w.data = make([]collector.Metric, 0)
+	w.data = make([]collector.Metric, 0)
 	return res
 }
 func (w *worker) DataCap() int {

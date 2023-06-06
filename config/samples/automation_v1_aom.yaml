@@ -9,4 +9,35 @@ metadata:
     app.kubernetes.io/created-by: aom
   name: aom-sample
 spec:
-  # TODO(user): Add fields here
+  collector:
+    address: http://192.168.49.2/prometheus
+    scrapeInterval: 15
+  interval: 30
+  metrics:
+    entitiy1:
+      name: http_request
+      query: sum(delta(http_requests_total[30s]))
+      scaleDownConf:
+        duration: 500
+        threshold: "100"
+      target: "50"
+      unit: num
+      weight: 100
+  models:
+    entitiy1:
+      - attr:
+          slen : "12"
+          look_forward : "24"
+          look_backward : "60"
+          alpha : "0.716"
+          beta : "0.029"
+          gamma : "0.993"
+        needTrain: false
+        type: holt_winter
+  scaleTargetRef :
+      kind : Deployment
+      name: my-app-deployment
+      apiVersion: apps/v1
+
+
+

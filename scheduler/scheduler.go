@@ -27,6 +27,9 @@ var schedulers map[types.NamespacedName]*Scheduler
 
 func GetOrNew(name types.NamespacedName, interval time.Duration) *Scheduler {
 	if nil == schedulers {
+		schedulers = make(map[types.NamespacedName]*Scheduler)
+	}
+	if nil == schedulers[name] {
 		schedulers[name] = New(name, interval)
 	}
 	return schedulers[name]

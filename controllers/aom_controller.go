@@ -180,6 +180,12 @@ func (hdlr *Handler) Handle(ctx context.Context) error {
 }
 
 func (hdlr *Handler) handleUpdate(ctx context.Context) error {
+	if err := hdlr.handleMetrics(ctx); err != nil {
+		return err
+	}
+	if err := hdlr.handleModels(ctx); err != nil {
+		return err
+	}
 	if err := hdlr.handleCollector(ctx); err != nil {
 		return err
 	}
@@ -198,14 +204,18 @@ func (hdlr *Handler) handleCreate(ctx context.Context) error {
 		log.Logger.Error(err, "fail to set collector server address")
 		return err
 	}
-	// 初始化instance中的Map
-	//hdlr.instance.Init()
+
+	if err := hdlr.handleMetrics(ctx); err != nil {
+		return err
+	}
+
+	if err := hdlr.handleModels(ctx); err != nil {
+		return err
+	}
+
 	if err := hdlr.handleCollector(ctx); err != nil {
 		return err
 	}
-	//if hdlr.predictors == nil {
-	//	hdlr.predictors = make(map[*basetype.Metric][]predictor.Predictor, 0)
-	//}
 
 	if err := hdlr.handlePredictor(ctx); err != nil {
 		return err
@@ -227,7 +237,7 @@ func (hdlr *Handler) handleDelete(ctx context.Context) error {
 
 func (hdlr *Handler) handleCollector(ctx context.Context) error {
 	// 此操作为幂等操作
-	// 其中的元素是格式化之后的metric，格式为: name/unit/query
+	// 其中的元素是格式化之后的metric，格式为: name$unit$query
 	toDelete := make([]string, 0)
 	toAdd := make([]basetype.Metric, 0)
 	hide := store.GetHide(types.NamespacedName{
@@ -295,7 +305,7 @@ type mdlMtrc struct {
 func (hdlr *Handler) handlePredictor(ctx context.Context) error {
 	hide := store.GetHide(types.NamespacedName{
 		Namespace: ctx.Value(consts.NAMESPACE).(string),
-		Name:      ctx.Value(consts.NAMESPACE).(string),
+		Name:      ctx.Value(consts.NAME).(string),
 	})
 	// 扫一遍spec 查看现在所需的
 
@@ -385,5 +395,61 @@ func (hdlr *Handler) handlePredictor(ctx context.Context) error {
 		log.Logger.Error(err, "update status failed")
 		return err
 	}
+	return nil
+}
+
+func (hdlr *Handler) handleMetrics(ctx context.Context) error {
+	hide := store.GetHide(types.NamespacedName{
+		Namespace: ctx.Value(consts.NAMESPACE).(string),
+		Name:      ctx.Value(consts.NAME).(string),
+	})
+	// Add
+	for _, metric := range hdlr.instance.Spec.Metrics {
+		if _, err := hide.MetricMap.Load(metric.NoModelKey()); err != nil {
+			hide.MetricMap.Store(metric.NoModelKey(), &metric)
+		}
+	}
+	// Delete
+	tempMap := make(map[string]struct{})
+	for _, metric := range hdlr.instance.Spec.Metrics {
+		tempMap[metric.NoModelKey()] = struct{}{}
+	}
+	for nmk := range hide.MetricMap.Data {
+		if _, ok := tempMap[nmk]; !ok {
+			hide.MetricMap.Delete(nmk)
+		}
+	}
+	return nil
+}
+
+func (hdlr *Handler) handleModels(ctx context.Context) error {
+	hide := store.GetHide(types.NamespacedName{
+		Namespace: ctx.Value(consts.NAMESPACE).(string),
+		Name:      ctx.Value(consts.NAME).(string),
+	})
+	//delete
+	tempMap := make(map[string]struct{})
+	//Add
+	for specKey, models := range hdlr.instance.Spec.Models {
+		metric, ok := hdlr.instance.Spec.Metrics[specKey]
+		if !ok {
+			return errors.New("orphan model")
+		}
+		for _, model := range models {
+			wmk := metric.WithModelKey(model.Type)
+			tempMap[wmk] = struct{}{}
+			if _, err := hide.ModelMap.Load(wmk); err != nil {
+				hide.ModelMap.Store(wmk, &model)
+			}
+		}
+
+	}
+	//delete
+	for wmk := range hide.ModelMap.Data {
+		if _, ok := tempMap[wmk]; !ok {
+			hide.ModelMap.Delete(wmk)
+		}
+	}
+
 	return nil
 }

@@ -3,6 +3,8 @@ package prometheus_collector
 import (
 	"context"
 	"fmt"
+	"github.com/LL-res/AOM/collector"
+	"github.com/LL-res/AOM/common/basetype"
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
@@ -60,4 +62,57 @@ func TestProm(t *testing.T) {
 	for _, sample := range vv {
 		fmt.Println(sample.Value, sample.Timestamp)
 	}
+}
+
+var Tcollector collector.Collector
+
+func TestMain(m *testing.M) {
+	Tcollector = New()
+	m.Run()
+}
+
+func TestSetAddress(t *testing.T) {
+	url := "192.168.49.2/prometheus"
+	err := Tcollector.SetServerAddress(url)
+	if err != nil {
+		t.Error(err)
+	}
+}
+func TestAddCustomMetrics(t *testing.T) {
+	fmt.Printf("%#v", Tcollector.ListMetricTypes())
+}
+func TestWorker(t *testing.T) {
+	url := "http://192.168.49.2/prometheus"
+	err := Tcollector.SetServerAddress(url)
+	if err != nil {
+		t.Error(err)
+	}
+	reqMetric := basetype.Metric{
+		ScaleDownConf: basetype.ScaleDownConf{},
+		Target:        "56",
+		Weight:        10,
+		Name:          "http_requests_total",
+		Unit:          "",
+		Query:         "sum(http_requests_total)",
+	}
+	Tcollector.AddCustomMetrics(reqMetric)
+	fmt.Printf("collector list : %#v", Tcollector.ListMetricTypes())
+	worker, err := Tcollector.CreateWorker(reqMetric)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	for i := 0; i < 5; i++ {
+		time.Sleep(5 * time.Second)
+		err = worker.Collect()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+	}
+	fmt.Println("before send cap :", worker.DataCap())
+	fmt.Println("send metrics :", worker.Send())
+	fmt.Println("\nafter send cap :", worker.DataCap())
+	fmt.Println("noModelKey :", worker.NoModelKey())
+
 }

@@ -5,4 +5,5 @@ func (h *Hide) Init() {
 	h.PredictorMap.NewConcurrentMap()
 	h.ModelMap.NewConcurrentMap()
 	h.CollectorWorkerMap.NewConcurrentMap()
+	h.CollectorMap = make(map[string]chan struct{})
 }

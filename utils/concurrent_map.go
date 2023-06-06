@@ -40,8 +40,8 @@ func (m *ConcurrentMap[T]) Delete(key string) {
 	delete(m.Data, key)
 }
 func (m *ConcurrentMap[T]) NewConcurrentMap() {
-	if m == nil {
-		m = NewConcurrentMap[T]()
+	if m.Data == nil {
+		m.Data = make(map[string]T)
 	}
 }
 func NewConcurrentMap[T any]() *ConcurrentMap[T] {

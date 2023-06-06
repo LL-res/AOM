@@ -7,12 +7,13 @@ import (
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/common/consts"
 	ptype "github.com/LL-res/AOM/predictor/type"
+	"strconv"
 )
 
 type HoltWinter struct {
 	slen            int
 	lookForward     int
-	lookBack        int
+	lookBackward    int
 	alpha           float64
 	beta            float64
 	gamma           float64
@@ -20,20 +21,20 @@ type HoltWinter struct {
 	collectorWorker collector.MetricCollector
 }
 type Param struct {
-	Slen        int     `json:"slen,omitempty"`
-	LookForward int     `json:"look_forward,omitempty"`
-	LookBack    int     `json:"look_back,omitempty"`
-	Alpha       float64 `json:"alpha,omitempty"`
-	Beta        float64 `json:"beta,omitempty"`
-	Gamma       float64 `json:"gamma,omitempty"`
+	Slen         string `json:"slen,omitempty"`
+	LookForward  string `json:"look_forward,omitempty"`
+	LookBackward string `json:"look_backward,omitempty"`
+	Alpha        string `json:"alpha,omitempty"`
+	Beta         string `json:"beta,omitempty"`
+	Gamma        string `json:"gamma,omitempty"`
 }
 
 func (p *HoltWinter) Predict(ctx context.Context) (ptype.PredictResult, error) {
-	if p.collectorWorker.DataCap() < p.lookBack {
+	if p.collectorWorker.DataCap() < p.lookBackward {
 		return ptype.PredictResult{}, errors.New("no sufficient data to predict")
 	}
 	metrcis := p.collectorWorker.Send()
-	metrcis = metrcis[len(metrcis)-p.lookBack:]
+	metrcis = metrcis[len(metrcis)-p.lookBackward:]
 	series := make([]float64, 0)
 	for _, m := range metrcis {
 		series = append(series, m.Value)
@@ -129,13 +130,37 @@ func New(collectorWorker collector.MetricCollector, model map[string]string, wit
 	if err != nil {
 		return nil, err
 	}
+	slen, err := strconv.Atoi(param.Slen)
+	if err != nil {
+		return nil, err
+	}
+	lookForward, err := strconv.Atoi(param.LookForward)
+	if err != nil {
+		return nil, err
+	}
+	lookBack, err := strconv.Atoi(param.LookBackward)
+	if err != nil {
+		return nil, err
+	}
+	alpha, err := strconv.ParseFloat(param.Alpha, 64)
+	if err != nil {
+		return nil, err
+	}
+	beta, err := strconv.ParseFloat(param.Beta, 64)
+	if err != nil {
+		return nil, err
+	}
+	gamma, err := strconv.ParseFloat(param.Gamma, 64)
+	if err != nil {
+		return nil, err
+	}
 	return &HoltWinter{
-		slen:            param.Slen,
-		lookForward:     param.LookForward,
-		lookBack:        param.LookBack,
-		alpha:           param.Alpha,
-		beta:            param.Beta,
-		gamma:           param.Gamma,
+		slen:            slen,
+		lookForward:     lookForward,
+		lookBackward:    lookBack,
+		alpha:           alpha,
+		beta:            beta,
+		gamma:           gamma,
 		withModelKey:    withModelKey,
 		collectorWorker: collectorWorker,
 	}, nil

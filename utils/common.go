@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"fmt"
 	"golang.org/x/exp/constraints"
 	"strings"
 )
@@ -29,6 +30,9 @@ func Min[T constraints.Ordered](x ...T) T {
 		}
 	}
 	return min
+}
+func GetWithModelKey(NoModelKey, model string) string {
+	return fmt.Sprintf("%s$%s", NoModelKey, model)
 }
 func GetNoModelKey(withModelKey string) string {
 	strs := strings.Split(withModelKey, "$")
