@@ -4,6 +4,7 @@ import (
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/common/basetype"
 	"github.com/LL-res/AOM/predictor"
+	"github.com/LL-res/AOM/scaler"
 	"github.com/LL-res/AOM/utils"
 	"k8s.io/apimachinery/pkg/types"
 	"time"
@@ -24,6 +25,8 @@ type Hide struct {
 	//withModelKey
 	//store the latest timestamp the model trained
 	TrainHistory utils.ConcurrentMap[time.Time]
+	//one scaler for one aom instance
+	Scaler *scaler.Scaler
 }
 
 type AOMStore map[types.NamespacedName]*Hide

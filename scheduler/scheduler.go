@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"github.com/LL-res/AOM/common/errs"
 	"github.com/LL-res/AOM/common/store"
 	"github.com/LL-res/AOM/log"
 	"github.com/LL-res/AOM/predictor"
@@ -15,7 +16,7 @@ import (
 
 type Scheduler struct {
 	Name     types.NamespacedName
-	interval time.Duration
+	Interval time.Duration
 }
 type Conf struct {
 	needTrain       bool
@@ -38,7 +39,7 @@ func New(name types.NamespacedName, interval time.Duration) *Scheduler {
 	return &Scheduler{
 		Name: name,
 		// the interval AOM call all the models
-		interval: interval,
+		Interval: interval,
 	}
 }
 
@@ -52,7 +53,7 @@ func (s *Scheduler) DeepCopyInto(out *Scheduler) {
 }
 func (s *Scheduler) Run(ctx context.Context) {
 	// interval 为instance配置
-	ticker := time.NewTicker(s.interval)
+	ticker := time.NewTicker(s.Interval)
 	defer ticker.Stop()
 	// TODO 获取当前时间判断是否需要对模型进行训练
 
@@ -60,7 +61,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 		waitGroup := sync.WaitGroup{}
 		hide := store.GetHide(s.Name)
 		hide.PredictorMap.Lock()
-
+		scr := hide.Scaler
 		ResChan := make(chan ResPair, len(hide.PredictorMap.Data))
 
 		for withModelKey, pred := range hide.PredictorMap.Data {
@@ -77,10 +78,14 @@ func (s *Scheduler) Run(ctx context.Context) {
 				continue
 			}
 			// 进行预测
-			go func(withModelKey string, pred predictor.Predictor) {
-				waitGroup.Add(1)
+			waitGroup.Add(1)
+			go func(withModelKey string, pred predictor.Predictor, scr *scaler.Scaler) {
 				defer waitGroup.Done()
 				pResult, err := pred.Predict(ctx)
+				if err == errs.NO_SUFFICENT_DATA || err == errs.UNREADY_TO_PREDICT {
+					log.Logger.Info("the predictor needs more metrics to be funtional", "predictor", withModelKey)
+					return
+				}
 				if err != nil {
 					log.Logger.Error(err, "predict failed", "predictor", withModelKey)
 					return
@@ -88,8 +93,9 @@ func (s *Scheduler) Run(ctx context.Context) {
 				targetVal, err := strconv.ParseFloat(metric.Target, 64)
 				if err != nil {
 					log.Logger.Error(err, "strconv failed")
+					return
 				}
-				modelReplica, err := scaler.GlobalScaler.GetModelReplica(pResult.PredictMetric, pResult.StartMetric, scaler.Steady, targetVal)
+				modelReplica, err := scr.GetModelReplica(pResult.PredictMetric, pResult.StartMetric, scaler.Steady, targetVal)
 				if err != nil {
 					log.Logger.Error(err, "get model replica failed", "key", withModelKey)
 					return
@@ -98,7 +104,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 					modelReplica: modelReplica,
 					withModelKey: withModelKey,
 				}
-			}(withModelKey, pred)
+			}(withModelKey, pred, scr)
 			if model.NeedTrain {
 				// the err stands for if lastTime exists
 				lastTime, err := hide.TrainHistory.Load(withModelKey)
@@ -121,21 +127,25 @@ func (s *Scheduler) Run(ctx context.Context) {
 		close(ResChan)
 		// no prediction result yet
 		if len(ResChan) == 0 {
-			log.Logger.Info("no predictor results received")
+			infos := make(map[string]int)
+			for k, v := range hide.CollectorWorkerMap.Data {
+				infos[k] = v.DataCap()
+			}
+			log.Logger.Info("no predictor results received", "metric cap", infos)
 			continue
 		}
 		for pair := range ResChan {
-			noMoedlKey := utils.GetNoModelKey(pair.withModelKey)
-			if modelReplicas[noMoedlKey] == nil {
-				modelReplicas[noMoedlKey] = [][]int32{pair.modelReplica}
+			noModelKey := utils.GetNoModelKey(pair.withModelKey)
+			if modelReplicas[noModelKey] == nil {
+				modelReplicas[noModelKey] = [][]int32{pair.modelReplica}
 			} else {
-				modelReplicas[noMoedlKey] = append(modelReplicas[noMoedlKey], pair.modelReplica)
+				modelReplicas[noModelKey] = append(modelReplicas[noModelKey], pair.modelReplica)
 			}
 		}
 		// 每一个metric对应的已经由model聚合完的副本数
 		metricReplicas := make(map[string][]int32, 0)
 		for noModelKey, modelReplica := range modelReplicas {
-			metricReplicas[noModelKey] = scaler.GlobalScaler.GetMetricReplica(modelReplica, scaler.MaxStrategy)
+			metricReplicas[noModelKey] = scr.GetMetricReplica(modelReplica, scaler.MaxStrategy)
 		}
 		//该数据结构对结果加权得出的结果进行暂存，以选出最后的扩所容副本数集合
 		mReplicas := make([][]int32, 0, len(metricReplicas))
@@ -152,8 +162,8 @@ func (s *Scheduler) Run(ctx context.Context) {
 		//扩所容副本选择集合
 		objSet := utils.AddSlice(mReplicas...)
 		//最终决定的扩容副本数，此刻的targetReplica并为除100，将除底数滞后以防止过多的类型转换
-		targetReplica := scaler.GlobalScaler.GetScaleReplica(objSet, scaler.SelectMax)
-		if err := scaler.GlobalScaler.UpTo(targetReplica / 100); err != nil {
+		targetReplica := scr.GetScaleReplica(objSet, scaler.SelectMax)
+		if err := scr.UpTo(targetReplica / 100); err != nil {
 			log.Logger.Error(err, "scale up failed")
 		}
 	}

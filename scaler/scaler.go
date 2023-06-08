@@ -2,16 +2,16 @@ package scaler
 
 import (
 	"errors"
+	"fmt"
 	"github.com/LL-res/AOM/clients/k8s"
+	"github.com/LL-res/AOM/log"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 )
 
-var (
-	GlobalScaler *Scaler
-)
-
 type Scaler struct {
-	namespace      string
+	MaxReplica     int32  `json:"maxReplica"`
+	MinReplica     int32  `json:"minReplica"`
+	Namespace      string `json:"namespace"`
 	ScaleTargetRef autoscalingv2.CrossVersionObjectReference
 	recvChan       chan []float64
 }
@@ -22,15 +22,18 @@ func (s *Scaler) RecvChan() chan []float64 {
 	}
 	return s.recvChan
 }
-func New(namespace string, scaleTargetRef autoscalingv2.CrossVersionObjectReference) *Scaler {
+func (s *Scaler) New(namespace string, scaleTargetRef autoscalingv2.CrossVersionObjectReference, maxReplica, minReplica int32) *Scaler {
+	return &Scaler{MinReplica: minReplica, MaxReplica: maxReplica, Namespace: namespace, ScaleTargetRef: scaleTargetRef}
+}
+func New(namespace string, scaleTargetRef autoscalingv2.CrossVersionObjectReference, maxReplica, minReplica int32) *Scaler {
 
-	return &Scaler{namespace: namespace, ScaleTargetRef: scaleTargetRef}
+	return &Scaler{MinReplica: minReplica, MaxReplica: maxReplica, Namespace: namespace, ScaleTargetRef: scaleTargetRef}
 
 }
 
 // 每个model对应一个
 func (s *Scaler) GetModelReplica(predictMetrics []float64, startMetric float64, strategy BaseStrategy, targetMetric float64) ([]int32, error) {
-	startReplica, err := k8s.GlobalClient.GetReplica(s.namespace, s.ScaleTargetRef)
+	startReplica, err := k8s.GlobalClient.GetReplica(s.Namespace, s.ScaleTargetRef)
 	if err != nil {
 		return nil, err
 	}
@@ -54,14 +57,19 @@ func (s *Scaler) GetScaleReplica(objReplicaSet []int32, strategy ObjStrategy) in
 	return strategy(objReplicaSet)
 }
 func (s *Scaler) UpTo(replica int32) error {
-	curReplica, err := k8s.GlobalClient.GetReplica(s.namespace, s.ScaleTargetRef)
+	curReplica, err := k8s.GlobalClient.GetReplica(s.Namespace, s.ScaleTargetRef)
 	if err != nil {
 		return err
 	}
 	if curReplica >= replica {
+		log.Logger.Info("do not scale", "scale target", s.ScaleTargetRef, "current replica", fmt.Sprint(curReplica), "target replica", fmt.Sprint(replica))
 		return errors.New("target replica num is smaller than the current")
 	}
-	err = k8s.GlobalClient.SetReplica(s.namespace, s.ScaleTargetRef, replica)
+	if replica > s.MaxReplica {
+		log.Logger.Info("do not scale", "scale target", s.ScaleTargetRef, "max replica", fmt.Sprint(s.MaxReplica), "target replica", fmt.Sprint(replica))
+		return nil
+	}
+	err = k8s.GlobalClient.SetReplica(s.Namespace, s.ScaleTargetRef, replica)
 	if err != nil {
 		return err
 	}
@@ -69,14 +77,14 @@ func (s *Scaler) UpTo(replica int32) error {
 
 }
 func (s *Scaler) DownTo(replica int32) error {
-	curReplica, err := k8s.GlobalClient.GetReplica(s.namespace, s.ScaleTargetRef)
+	curReplica, err := k8s.GlobalClient.GetReplica(s.Namespace, s.ScaleTargetRef)
 	if err != nil {
 		return err
 	}
 	if curReplica <= replica {
 		return errors.New("target replica num is bigger than the current")
 	}
-	err = k8s.GlobalClient.SetReplica(s.namespace, s.ScaleTargetRef, replica)
+	err = k8s.GlobalClient.SetReplica(s.Namespace, s.ScaleTargetRef, replica)
 	if err != nil {
 		return err
 	}

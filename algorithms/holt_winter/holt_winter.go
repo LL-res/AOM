@@ -3,9 +3,9 @@ package holt_winter
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/common/consts"
+	"github.com/LL-res/AOM/common/errs"
 	ptype "github.com/LL-res/AOM/predictor/type"
 	"strconv"
 )
@@ -31,7 +31,7 @@ type Param struct {
 
 func (p *HoltWinter) Predict(ctx context.Context) (ptype.PredictResult, error) {
 	if p.collectorWorker.DataCap() < p.lookBackward {
-		return ptype.PredictResult{}, errors.New("no sufficient data to predict")
+		return ptype.PredictResult{}, errs.NO_SUFFICENT_DATA
 	}
 	metrcis := p.collectorWorker.Send()
 	metrcis = metrcis[len(metrcis)-p.lookBackward:]

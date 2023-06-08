@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"errors"
+	"github.com/LL-res/AOM/clients/k8s"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/collector/prometheus_collector"
 	"github.com/LL-res/AOM/common/basetype"
@@ -118,6 +119,11 @@ func StartWorker(ctx context.Context, worker collector.MetricCollector, aom *aut
 	})
 	for _ = range ticker.C {
 		if _, err := hide.CollectorWorkerMap.Load(worker.NoModelKey()); err != nil || end {
+			if err != nil {
+				log.Logger.Error(err, "a must behaviour failed")
+				break
+			}
+			log.Logger.Info("worker end", worker.NoModelKey())
 			break
 		}
 		select {
@@ -156,15 +162,20 @@ func (hdlr *Handler) Handle(ctx context.Context) error {
 	if hdlr.instance.Status.Generation == hdlr.instance.Generation {
 		return nil
 	}
+	if err := k8s.NewClient(); err != nil {
+		return err
+	}
 	// 防止过多层if嵌套
 	var err error
 	// create instance
 	if hdlr.instance.Status.Generation == 0 {
+		log.Logger.Info("creating aom instance", "namespace", hdlr.instance.Namespace, "name", hdlr.instance.Name)
 		err = hdlr.handleCreate(ctx)
 	}
 	// update instance
 	if hdlr.instance.Status.Generation != 0 &&
 		hdlr.instance.Generation > hdlr.instance.Status.Generation {
+		log.Logger.Info("updating aom instance", "namespace", hdlr.instance.Namespace, "name", hdlr.instance.Name)
 		err = hdlr.handleUpdate(ctx)
 	}
 	if err != nil {
@@ -200,6 +211,7 @@ func (hdlr *Handler) handleUpdate(ctx context.Context) error {
 
 func (hdlr *Handler) handleCreate(ctx context.Context) error {
 	promcOnce.Do(func() {
+		log.Logger.Info("init collector")
 		pCollector = prometheus_collector.New()
 	})
 	err := pCollector.SetServerAddress(hdlr.instance.Spec.Collector.Address)
@@ -207,7 +219,12 @@ func (hdlr *Handler) handleCreate(ctx context.Context) error {
 		log.Logger.Error(err, "fail to set collector server address")
 		return err
 	}
-
+	hide := store.GetHide(types.NamespacedName{
+		Namespace: ctx.Value(consts.NAMESPACE).(string),
+		Name:      ctx.Value(consts.NAME).(string),
+	})
+	hide.Scaler = hide.Scaler.New(ctx.Value(consts.NAMESPACE).(string), hdlr.instance.Spec.ScaleTargetRef, hdlr.instance.Spec.MaxReplicas, hdlr.instance.Spec.MinReplicas)
+	log.Logger.Info("init scaler", "scaler", hide.Scaler)
 	if err := hdlr.handleMetrics(ctx); err != nil {
 		return err
 	}
@@ -229,7 +246,7 @@ func (hdlr *Handler) handleCreate(ctx context.Context) error {
 		Namespace: ctx.Value(consts.NAMESPACE).(string),
 		Name:      ctx.Value(consts.NAME).(string),
 	}, time.Second*time.Duration(hdlr.instance.Spec.Interval))
-
+	log.Logger.Info("start scheduler", "scheduler", schdlr)
 	go schdlr.Run(ctx)
 
 	return nil
@@ -268,6 +285,7 @@ func (hdlr *Handler) handleCollector(ctx context.Context) error {
 		}
 	}
 	for _, v := range toDelete {
+		log.Logger.Info("delete metric worker", "metric", v)
 		// 对collecter worker进行退出控制
 		close(hide.CollectorMap[v])
 		hide.CollectorWorkerMap.Delete(v)
@@ -279,6 +297,7 @@ func (hdlr *Handler) handleCollector(ctx context.Context) error {
 			log.Logger.Error(err, "fail to create metric collector worker")
 			return err
 		}
+		log.Logger.Info("create metric worker", "metric key", m.NoModelKey())
 		hide.CollectorWorkerMap.Store(m.NoModelKey(), worker)
 		stopC := make(chan struct{})
 		hide.CollectorMap[m.NoModelKey()] = stopC
@@ -293,10 +312,6 @@ func (hdlr *Handler) handleCollector(ctx context.Context) error {
 			Unit:       metric.Unit,
 			Expression: metric.Query,
 		})
-	}
-	if err := hdlr.Status().Update(ctx, hdlr.instance); err != nil {
-		log.Logger.Error(err, "update status failed")
-		return err
 	}
 	return nil
 }
@@ -354,6 +369,7 @@ func (hdlr *Handler) handlePredictor(ctx context.Context, changeMap map[string]b
 		}
 	}
 	for _, wmk := range toDelete {
+		log.Logger.Info("delete predictor", "predictor", wmk)
 		hide.PredictorMap.Delete(wmk)
 		//nmk := utils.GetNoModelKey(wmk)
 		//找到metric对应的那一组predictor
@@ -369,20 +385,22 @@ func (hdlr *Handler) handlePredictor(ctx context.Context, changeMap map[string]b
 		//}
 	}
 	for _, param := range toAdd {
+		log.Logger.Info("create predictor", "predictor", param.WithModelKey(param.Type))
 		WithModelKey := param.WithModelKey(param.Model.Type)
 		collect, err := hide.CollectorWorkerMap.Load(param.NoModelKey())
 		if err != nil {
 			log.Logger.Error(err, "a must behaviour failed,predictor can not find the corresponding collector")
 			return err
 		}
-		pred, err := predictor.NewPredictor(predictor.Param{
+		pm := predictor.Param{
 			WithModelKey:    WithModelKey,
 			MetricCollector: collect,
 			Model:           param.Model.Attr,
 			ScaleTargetRef:  hdlr.instance.Spec.ScaleTargetRef,
-		})
+		}
+		pred, err := predictor.NewPredictor(pm)
 		if err != nil {
-			log.Logger.Error(err, "new predictor failed")
+			log.Logger.Error(err, "new predictor failed", "param", pm)
 			return err
 		}
 		hide.PredictorMap.Store(param.WithModelKey(param.Type), pred)
@@ -411,12 +429,7 @@ func (hdlr *Handler) handlePredictor(ctx context.Context, changeMap map[string]b
 		}
 		hide.PredictorMap.Store(wmk, pred)
 	}
-
-	//TODO 展示部分的status还未完成
-	if err := hdlr.Status().Update(ctx, hdlr.instance); err != nil {
-		log.Logger.Error(err, "update status failed")
-		return err
-	}
+	// TODO STATUS
 	return nil
 }
 
@@ -428,6 +441,7 @@ func (hdlr *Handler) handleMetrics(ctx context.Context) error {
 	// Add
 	for _, metric := range hdlr.instance.Spec.Metrics {
 		if _, err := hide.MetricMap.Load(metric.NoModelKey()); err != nil {
+			log.Logger.Info("store metric", "metric", metric.NoModelKey())
 			hide.MetricMap.Store(metric.NoModelKey(), &metric)
 		}
 	}
@@ -438,6 +452,7 @@ func (hdlr *Handler) handleMetrics(ctx context.Context) error {
 	}
 	for nmk := range hide.MetricMap.Data {
 		if _, ok := tempMap[nmk]; !ok {
+			log.Logger.Info("delete metric", "metric", nmk)
 			hide.MetricMap.Delete(nmk)
 		}
 	}
@@ -451,6 +466,7 @@ func (hdlr *Handler) handleMetrics(ctx context.Context) error {
 		if reflect.DeepEqual(*old, metric) {
 			return nil
 		}
+		log.Logger.Info("update metric", "metric", metric.NoModelKey())
 		hide.MetricMap.Store(metric.NoModelKey(), &metric)
 	}
 	return nil
@@ -475,12 +491,14 @@ func (hdlr *Handler) handleModels(ctx context.Context) (map[string]basetype.Mode
 			tempMap[wmk] = struct{}{}
 			old, err := hide.ModelMap.Load(wmk)
 			if err != nil {
+				log.Logger.Info("store model", "model", wmk)
 				hide.ModelMap.Store(wmk, &model)
 				continue
 			}
 			if reflect.DeepEqual(*old, model) {
 				continue
 			}
+			log.Logger.Info("update model", "model", wmk)
 			hide.ModelMap.Store(wmk, &model)
 			changeMap[wmk] = model
 		}
@@ -488,6 +506,7 @@ func (hdlr *Handler) handleModels(ctx context.Context) (map[string]basetype.Mode
 	//delete
 	for wmk := range hide.ModelMap.Data {
 		if _, ok := tempMap[wmk]; !ok {
+			log.Logger.Info("delete model", "model", wmk)
 			hide.ModelMap.Delete(wmk)
 		}
 	}

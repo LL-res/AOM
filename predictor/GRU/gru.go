@@ -3,11 +3,11 @@ package GRU
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/common/basetype"
 	"github.com/LL-res/AOM/common/consts"
+	"github.com/LL-res/AOM/common/errs"
 	ptype "github.com/LL-res/AOM/predictor/type"
 	"github.com/LL-res/AOM/utils"
 	"go.uber.org/atomic"
@@ -55,11 +55,11 @@ func New(collectorWorker collector.MetricCollector, model basetype.GRU, withMode
 
 func (g *GRU) Predict(ctx context.Context) (result ptype.PredictResult, err error) {
 	if !g.readyToPredict.Load() {
-		return ptype.PredictResult{}, errors.New("the model is not ready to predict")
+		return ptype.PredictResult{}, errs.UNREADY_TO_PREDICT
 	}
 	// 如果worker中的数据量不足，直接返回
 	if g.collectorWorker.DataCap() < g.model.LookForward {
-		return ptype.PredictResult{}, errors.New("no sufficient data to predict")
+		return ptype.PredictResult{}, errs.NO_SUFFICENT_DATA
 	}
 	tempData := g.collectorWorker.Send()
 	// with timestamp
@@ -91,7 +91,7 @@ func (g *GRU) Predict(ctx context.Context) (result ptype.PredictResult, err erro
 		return ptype.PredictResult{}, err
 	}
 	if !response.Trained {
-		return ptype.PredictResult{}, errors.New("the model is not ready to predict")
+		return ptype.PredictResult{}, errs.UNREADY_TO_PREDICT
 	}
 	result.StartMetric = predictHistory[len(predictHistory)-1]
 	result.PredictMetric = response.Prediction
@@ -112,7 +112,7 @@ func (g *GRU) GetType() string {
 
 func (g *GRU) Train(ctx context.Context) error {
 	if len(g.MetricHistory) < g.model.TrainSize {
-		return errors.New("no sufficient data to train")
+		return errs.NO_SUFFICENT_DATA
 	}
 	tempData := g.collectorWorker.Send()
 	//with timestamp

@@ -89,11 +89,6 @@ func (in *AOMList) DeepCopyObject() runtime.Object {
 func (in *AOMSpec) DeepCopyInto(out *AOMSpec) {
 	*out = *in
 	out.ScaleTargetRef = in.ScaleTargetRef
-	if in.MinReplicas != nil {
-		in, out := &in.MinReplicas, &out.MinReplicas
-		*out = new(int32)
-		**out = **in
-	}
 	out.Collector = in.Collector
 	if in.Metrics != nil {
 		in, out := &in.Metrics, &out.Metrics

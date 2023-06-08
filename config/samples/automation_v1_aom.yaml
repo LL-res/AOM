@@ -11,8 +11,8 @@ metadata:
 spec:
   collector:
     address: http://192.168.49.2/prometheus
-    scrapeInterval: 15
-  interval: 30
+    scrapeInterval: 1
+  interval: 1
   metrics:
     entitiy1:
       name: http_request_01
@@ -28,7 +28,7 @@ spec:
       - attr:
           slen : "12"
           look_forward : "24"
-          look_backward : "60"
+          look_backward : "24"
           alpha : "0.716"
           beta : "0.029"
           gamma : "0.993"
@@ -38,6 +38,8 @@ spec:
       kind : Deployment
       name: my-app-deployment
       apiVersion: apps/v1
+  minReplicas: 1
+  maxReplicas: 5
 
 
 

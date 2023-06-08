@@ -20,7 +20,7 @@ type Model struct {
 	// if NeedTrain is true then UpdateInterval show when to update the model
 	UpdateInterval int `json:"updateInterval,omitempty"`
 	// e.g. LSTM,GRU
-	Attr map[string]string `json:"attr,omitempty"`
+	Attr map[string]string `json:"attr"`
 }
 
 func (m *Model) DeepCopyInto(out *Model) {
@@ -31,6 +31,7 @@ func (m *Model) DeepCopyInto(out *Model) {
 	for k, v := range m.Attr {
 		tmap[k] = v
 	}
+	out.Attr = tmap
 }
 
 // model Attr

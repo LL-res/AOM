@@ -14,7 +14,7 @@ func TestMain(m *testing.M) {
 		Kind:       "Deployment",
 		Name:       "my-app-deployment",
 		APIVersion: "apps/v1",
-	})
+	}, 5, 3)
 	if err := k8s.NewClient(); err != nil {
 		panic(err)
 	}

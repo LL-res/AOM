@@ -33,7 +33,7 @@ type AOMSpec struct {
 
 	// +kubebuilder:validation:Minimum=0
 	// +optional
-	MinReplicas *int32 `json:"minReplicas"`
+	MinReplicas int32 `json:"minReplicas"`
 
 	// +kubebuilder:validation:Minimum=1
 	// +optional

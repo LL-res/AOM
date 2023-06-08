@@ -108,5 +108,5 @@ func (w *worker) DataCap() int {
 	return len(w.data)
 }
 func (w worker) NoModelKey() string {
-	return fmt.Sprintf("%s/%s/%s", w.Name, w.Unit, w.promql)
+	return fmt.Sprintf("%s$%s$%s", w.Name, w.Unit, w.promql)
 }
