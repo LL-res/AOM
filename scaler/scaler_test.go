@@ -53,6 +53,18 @@ func TestScaler_GetModelReplica(t *testing.T) {
 			strategy:      Steady,
 			targetMetric:  3,
 		},
+		{
+			predictMetric: []float64{-1, -4, 0, -8, 9},
+			startMetric:   2,
+			strategy:      Steady,
+			targetMetric:  3,
+		},
+		{
+			predictMetric: []float64{-1, -4, 0, -8, 9},
+			startMetric:   2,
+			strategy:      UnderThreshold,
+			targetMetric:  3,
+		},
 	}
 	for i, test := range tests {
 		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {

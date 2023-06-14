@@ -19,6 +19,10 @@ type ObjStrategy func(replicas []int32) int32
 func Steady(targetMetric, startMetric float64, startReplica int32, predictMetric []float64) []int32 {
 	res := make([]int32, 0)
 	for _, m := range predictMetric {
+		if m < 0 {
+			res = append(res, 0)
+			continue
+		}
 		//向上取整
 		res = append(res, int32(math.Ceil(float64(startReplica)*(m/startMetric))))
 	}
@@ -28,6 +32,10 @@ func Steady(targetMetric, startMetric float64, startReplica int32, predictMetric
 func UnderThreshold(targetMetric, startMetric float64, startReplica int32, predictMetric []float64) []int32 {
 	res := make([]int32, 0)
 	for _, m := range predictMetric {
+		if m < 0 {
+			res = append(res, 0)
+			continue
+		}
 		res = append(res, int32(math.Ceil(m/targetMetric)))
 		//if m >= targetMetric {
 		//	if i == 0 {

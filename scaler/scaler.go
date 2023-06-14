@@ -66,8 +66,8 @@ func (s *Scaler) UpTo(replica int32) error {
 		return errors.New("target replica num is smaller than the current")
 	}
 	if replica > s.MaxReplica {
-		log.Logger.Info("do not scale", "scale target", s.ScaleTargetRef, "max replica", fmt.Sprint(s.MaxReplica), "target replica", fmt.Sprint(replica))
-		return nil
+		log.Logger.Info("scale to max replica", "scale target", s.ScaleTargetRef, "max replica", fmt.Sprint(s.MaxReplica), "target replica", fmt.Sprint(replica))
+		replica = s.MaxReplica
 	}
 	err = k8s.GlobalClient.SetReplica(s.Namespace, s.ScaleTargetRef, replica)
 	if err != nil {
@@ -83,6 +83,10 @@ func (s *Scaler) DownTo(replica int32) error {
 	}
 	if curReplica <= replica {
 		return errors.New("target replica num is bigger than the current")
+	}
+	if replica < s.MinReplica {
+		log.Logger.Info("scale to min replica", "scale target", s.ScaleTargetRef, "min replica", fmt.Sprint(s.MinReplica), "target replica", fmt.Sprint(replica))
+		replica = s.MinReplica
 	}
 	err = k8s.GlobalClient.SetReplica(s.Namespace, s.ScaleTargetRef, replica)
 	if err != nil {

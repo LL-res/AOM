@@ -32,6 +32,7 @@ spec:
           alpha : "0.716"
           beta : "0.029"
           gamma : "0.993"
+          debug: "true"
         needTrain: false
         type: holt_winter
   scaleTargetRef :

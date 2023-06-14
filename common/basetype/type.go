@@ -18,9 +18,8 @@ type Model struct {
 	Type      string `json:"type,omitempty"`
 	NeedTrain bool   `json:"needTrain,omitempty"`
 	// if NeedTrain is true then UpdateInterval show when to update the model
-	UpdateInterval int `json:"updateInterval,omitempty"`
-	// e.g. LSTM,GRU
-	Attr map[string]string `json:"attr"`
+	UpdateInterval int               `json:"updateInterval,omitempty"`
+	Attr           map[string]string `json:"attr"`
 }
 
 func (m *Model) DeepCopyInto(out *Model) {

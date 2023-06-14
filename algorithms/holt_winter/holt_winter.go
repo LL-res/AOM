@@ -6,11 +6,13 @@ import (
 	"github.com/LL-res/AOM/collector"
 	"github.com/LL-res/AOM/common/consts"
 	"github.com/LL-res/AOM/common/errs"
+	"github.com/LL-res/AOM/log"
 	ptype "github.com/LL-res/AOM/predictor/type"
 	"strconv"
 )
 
 type HoltWinter struct {
+	debug           bool
 	slen            int
 	lookForward     int
 	lookBackward    int
@@ -27,19 +29,32 @@ type Param struct {
 	Alpha        string `json:"alpha,omitempty"`
 	Beta         string `json:"beta,omitempty"`
 	Gamma        string `json:"gamma,omitempty"`
+	Debug        string `json:"debug,omitempty"`
 }
 
 func (p *HoltWinter) Predict(ctx context.Context) (ptype.PredictResult, error) {
 	if p.collectorWorker.DataCap() < p.lookBackward {
 		return ptype.PredictResult{}, errs.NO_SUFFICENT_DATA
 	}
-	metrcis := p.collectorWorker.Send()
-	metrcis = metrcis[len(metrcis)-p.lookBackward:]
+	metrics := p.collectorWorker.Send()
+	metrics = metrics[len(metrics)-p.lookBackward:]
+	if p.debug {
+		ms := make([]float64, 0)
+		ts := make([]string, 0)
+		for _, val := range metrics {
+			ms = append(ms, val.Value)
+			ts = append(ts, val.TimeStamp.Format("15:04:05"))
+		}
+		log.Logger.Info("metrics used to predict", "metrics", ms, "time stamps", ts)
+	}
 	series := make([]float64, 0)
-	for _, m := range metrcis {
+	for _, m := range metrics {
 		series = append(series, m.Value)
 	}
 	predMetrics := p.tripleExponentialSmoothing(series)
+	if p.debug {
+		log.Logger.Info("predict metrics", "metrics", predMetrics)
+	}
 	res := ptype.PredictResult{
 		StartMetric:   series[len(series)-1],
 		Loss:          -1,
@@ -154,6 +169,10 @@ func New(collectorWorker collector.MetricCollector, model map[string]string, wit
 	if err != nil {
 		return nil, err
 	}
+	debug := false
+	if param.Debug == "true" {
+		debug = true
+	}
 	return &HoltWinter{
 		slen:            slen,
 		lookForward:     lookForward,
@@ -163,6 +182,7 @@ func New(collectorWorker collector.MetricCollector, model map[string]string, wit
 		gamma:           gamma,
 		withModelKey:    withModelKey,
 		collectorWorker: collectorWorker,
+		debug:           debug,
 	}, nil
 
 }

@@ -95,7 +95,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 					log.Logger.Error(err, "strconv failed")
 					return
 				}
-				modelReplica, err := scr.GetModelReplica(pResult.PredictMetric, pResult.StartMetric, scaler.Steady, targetVal)
+				modelReplica, err := scr.GetModelReplica(pResult.PredictMetric, pResult.StartMetric, scaler.UnderThreshold, targetVal)
 				if err != nil {
 					log.Logger.Error(err, "get model replica failed", "key", withModelKey)
 					return
@@ -142,11 +142,13 @@ func (s *Scheduler) Run(ctx context.Context) {
 				modelReplicas[noModelKey] = append(modelReplicas[noModelKey], pair.modelReplica)
 			}
 		}
+		log.Logger.Info("modelReplicas", "modelReplicas", modelReplicas)
 		// 每一个metric对应的已经由model聚合完的副本数
 		metricReplicas := make(map[string][]int32, 0)
 		for noModelKey, modelReplica := range modelReplicas {
 			metricReplicas[noModelKey] = scr.GetMetricReplica(modelReplica, scaler.MaxStrategy)
 		}
+		log.Logger.Info("metricReplicas", "metricReplicas", metricReplicas)
 		//该数据结构对结果加权得出的结果进行暂存，以选出最后的扩所容副本数集合
 		mReplicas := make([][]int32, 0, len(metricReplicas))
 		for noModelKey, metricReplica := range metricReplicas {
@@ -163,6 +165,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 		objSet := utils.AddSlice(mReplicas...)
 		//最终决定的扩容副本数，此刻的targetReplica并为除100，将除底数滞后以防止过多的类型转换
 		targetReplica := scr.GetScaleReplica(objSet, scaler.SelectMax)
+		log.Logger.Info("targetReplica", "targetReplica", targetReplica/100)
 		if err := scr.UpTo(targetReplica / 100); err != nil {
 			log.Logger.Error(err, "scale up failed")
 		}
