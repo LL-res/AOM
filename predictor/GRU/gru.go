@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"time"
 )
 
@@ -32,7 +33,7 @@ const (
 // 在controller里控制要不要进行predict或者train，status里记录了模型的状态
 // 在这里的预测服务只要专心进行预测即可
 
-func New(collectorWorker collector.MetricCollector, model basetype.GRU, withModelKey string) (*GRU, error) {
+func New(collectorWorker collector.MetricCollector, model map[string]string, withModelKey string) (*GRU, error) {
 	cmd := exec.Command("python3", pythonMain)
 	go func() {
 		if err := cmd.Run(); err != nil {
@@ -40,15 +41,57 @@ func New(collectorWorker collector.MetricCollector, model basetype.GRU, withMode
 		}
 	}()
 	time.Sleep(time.Second)
+	j, err := json.Marshal(model)
+	if err != nil {
+		return nil, err
+	}
+	param := Param{}
+	err = json.Unmarshal(j, &param)
+	if err != nil {
+		return nil, err
+	}
+	lookBack, err := strconv.Atoi(param.LookBack)
+	if err != nil {
+		return nil, err
+	}
+	lookForward, err := strconv.Atoi(param.LookForward)
+	if err != nil {
+		return nil, err
+	}
+	batchSize, err := strconv.Atoi(param.BatchSize)
+	if err != nil {
+		return nil, err
+	}
+	trainSize, err := strconv.Atoi(param.TrainSize)
+	if err != nil {
+		return nil, err
+	}
+	epochs, err := strconv.Atoi(param.Epochs)
+	if err != nil {
+		return nil, err
+	}
+	nLayers, err := strconv.Atoi(param.NLayers)
+	if err != nil {
+		return nil, err
+	}
 	return &GRU{
 		Base: ptype.Base{
 			MetricHistory: collectorWorker.Send(),
 		},
-		withModelKey:    withModelKey,
-		model:           model,
+		withModelKey: withModelKey,
+		model: basetype.GRU{
+			Address:        param.Address,
+			RespRecvAdress: param.RespRecvAdress,
+			LookBack:       lookBack,
+			LookForward:    lookForward,
+			BatchSize:      batchSize,
+			TrainSize:      trainSize,
+			Epochs:         epochs,
+			NLayers:        nLayers,
+		},
 		collectorWorker: collectorWorker,
 		readyToPredict:  atomic.NewBool(false),
-		address:         model.Address,
+		address:         param.Address,
 	}, nil
 
 }

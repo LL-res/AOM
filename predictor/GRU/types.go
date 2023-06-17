@@ -37,3 +37,13 @@ type Response struct {
 	Prediction []float64 `json:"prediction"`
 	Error      string    `json:"error"`
 }
+type Param struct {
+	Address        string `json:"address"`
+	RespRecvAdress string `json:"resp_recv_address"`
+	LookBack       string `json:"look_back"`
+	LookForward    string `json:"look_forward"`
+	BatchSize      string `json:"batch_size"`
+	TrainSize      string `json:"train_size"`
+	Epochs         string `json:"epochs"`
+	NLayers        string `json:"n_layers"`
+}

@@ -2,11 +2,9 @@ package predictor
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"github.com/LL-res/AOM/algorithms/holt_winter"
 	"github.com/LL-res/AOM/collector"
-	"github.com/LL-res/AOM/common/basetype"
 	"github.com/LL-res/AOM/common/consts"
 	"github.com/LL-res/AOM/predictor/GRU"
 	ptype "github.com/LL-res/AOM/predictor/type"
@@ -71,16 +69,7 @@ type PredictResult struct {
 func NewPredictor(param Param) (Predictor, error) {
 	switch utils.GetModelType(param.WithModelKey) {
 	case consts.GRU:
-		gruParam := basetype.GRU{}
-		temp, err := json.Marshal(param.Model)
-		if err != nil {
-			return nil, err
-		}
-		err = json.Unmarshal(temp, &gruParam)
-		if err != nil {
-			return nil, err
-		}
-		pred, err := GRU.New(param.MetricCollector, gruParam, param.WithModelKey)
+		pred, err := GRU.New(param.MetricCollector, param.Model, param.WithModelKey)
 		if err != nil {
 			return nil, err
 		}
