@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+import data_preparation
 import param
 
 
@@ -122,6 +123,8 @@ def evaluate(model, test_x, test_y, label_scalers):
     return outputs, targets, sMAPE
 
 def predict(metrics,metric_type,model_type="GRU",hidden_dim = 256):
+    norm_trans = data_preparation.data_transformer(metrics)
+    metrics = norm_trans.normalize()
     metrics = np.array(metrics)
     # 只要后look back个的数据
     metrics = metrics[-param.look_back:]
@@ -138,4 +141,5 @@ def predict(metrics,metric_type,model_type="GRU",hidden_dim = 256):
     model.load_state_dict(torch.load('{}.pt'.format(metric_type)))
     h = model.init_hidden(metrics.shape[0])
     out,_ = model(torch.from_numpy(metrics).to(param.device).float(),h)
-    return out
+    result = out.tolist()[0]
+    return norm_trans.denormalize(result)

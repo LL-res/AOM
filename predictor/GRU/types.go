@@ -16,6 +16,7 @@ type GRU struct {
 	readyToPredict  *atomic.Bool
 	address         string
 	ScaleTargetRef  autoscalingv2.CrossVersionObjectReference
+	debug           bool
 }
 
 type Request struct {
@@ -37,6 +38,8 @@ type Response struct {
 	Prediction []float64 `json:"prediction"`
 	Error      string    `json:"error"`
 }
+
+// spec fields
 type Param struct {
 	Address        string `json:"address"`
 	RespRecvAdress string `json:"resp_recv_address"`
@@ -46,4 +49,5 @@ type Param struct {
 	TrainSize      string `json:"train_size"`
 	Epochs         string `json:"epochs"`
 	NLayers        string `json:"n_layers"`
+	Debug          string `json:"debug"`
 }

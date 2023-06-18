@@ -17,22 +17,24 @@ class GRUParameters:
 #gru_params = json.loads(sys.stdin.read(), object_hook=GRUParameters)
 
 
-def get_metrics(gru_params):
-    gru_params = json.loads(sys.stdin.read(), object_hook=GRUParameters)
-    if check_status(gru_params) & param.STATUS_PREDICT:
-        metrics = []
-        for index, val in enumerate(gru_params.predict_history):
-            metrics.append(val.metric)
-    if check_status(gru_params) & param.STATUS_TRAIN:
-        metrics = []
-        for index, val in enumerate(gru_params.train_history):
-            metrics.append(val.metric)
-        train_fake(metrics, gru_params.train_history[0].type)
+# def get_metrics(gru_params):
+#     gru_params = json.loads(sys.stdin.read(), object_hook=GRUParameters)
+#     if check_status(gru_params) & param.STATUS_PREDICT:
+#         metrics = []
+#         for index, val in enumerate(gru_params.predict_history):
+#             metrics.append(val.metric)
+#     if check_status(gru_params) & param.STATUS_TRAIN:
+#         metrics = []
+#         for index, val in enumerate(gru_params.train_history):
+#             metrics.append(val.metric)
+#         train_fake(metrics, gru_params.train_history[0].type)
 
 def train_data_prepare(metrics):
     """
         :param metrics: list of float
     """
+    norm_trans = data_transformer(metrics)
+    metrics = norm_trans.normalize()
     #如修改标签维数，需再进行一次滑动窗口
     print("start preparing data for training")
     metrics = np.array(metrics)
@@ -67,3 +69,14 @@ def train_data_prepare(metrics):
 # train_loader = train_data_prepare(metrics)
 # for x,y in train_loader:
 #     print('x=',x,'y=',y)
+class data_transformer():
+    def __init__(self,data_list):
+        self.data_list = data_list
+        self.np_data = np.array(data_list)
+    def normalize(self):
+        res_np = (self.np_data - self.np_data.min()) / (self.np_data.max() - self.np_data.min())
+        return res_np.tolist()
+    def denormalize(self,predict_list):
+        predict_np = np.array(predict_list)
+        res_np = predict_np * (self.np_data.max() - self.np_data.min()) + self.np_data.min()
+        return res_np.tolist()

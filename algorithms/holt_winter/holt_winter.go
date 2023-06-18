@@ -8,6 +8,7 @@ import (
 	"github.com/LL-res/AOM/common/errs"
 	"github.com/LL-res/AOM/log"
 	ptype "github.com/LL-res/AOM/predictor/type"
+	"github.com/LL-res/AOM/utils"
 	"strconv"
 )
 
@@ -54,6 +55,9 @@ func (p *HoltWinter) Predict(ctx context.Context) (ptype.PredictResult, error) {
 	predMetrics := p.tripleExponentialSmoothing(series)
 	if p.debug {
 		log.Logger.Info("predict metrics", "metrics", predMetrics)
+		if err := utils.PlotLine(series, predMetrics, "holt_winter"); err != nil {
+			log.Logger.Error(err, "debug plot failed")
+		}
 	}
 	res := ptype.PredictResult{
 		StartMetric:   series[len(series)-1],

@@ -27,6 +27,7 @@ const (
 	Epochs         = 100
 	Nlayers        = 2
 	pythonMain     = "../../algorithms/DL/main.py"
+	PYTHON         = "../../algorithms/DL/aomenv/bin/python3"
 	pythonDir      = "../../algorithms/DL"
 )
 
@@ -34,10 +35,11 @@ const (
 // 在这里的预测服务只要专心进行预测即可
 
 func New(collectorWorker collector.MetricCollector, model map[string]string, withModelKey string) (*GRU, error) {
-	cmd := exec.Command("python3", pythonMain)
+	cmd := exec.Command(PYTHON, pythonMain)
 	go func() {
+		log.Println("starting main.py")
 		if err := cmd.Run(); err != nil {
-			log.Println(err)
+			log.Println("python cmd failed", err)
 		}
 	}()
 	time.Sleep(time.Second)
@@ -74,6 +76,10 @@ func New(collectorWorker collector.MetricCollector, model map[string]string, wit
 	if err != nil {
 		return nil, err
 	}
+	debug := false
+	if param.Debug == "true" {
+		debug = true
+	}
 	return &GRU{
 		Base: ptype.Base{
 			MetricHistory: collectorWorker.Send(),
@@ -92,6 +98,7 @@ func New(collectorWorker collector.MetricCollector, model map[string]string, wit
 		collectorWorker: collectorWorker,
 		readyToPredict:  atomic.NewBool(false),
 		address:         param.Address,
+		debug:           debug,
 	}, nil
 
 }
@@ -142,9 +149,11 @@ func (g *GRU) Predict(ctx context.Context) (result ptype.PredictResult, err erro
 	if err != nil {
 		return ptype.PredictResult{}, err
 	}
-	//// 更新amo的status,TODO 移至上层防止包循环引用
-	//statusHistory, _ := aom.Status.PredictorHistory.Load(g.withModelKey)
-	//statusHistory.AppendPredictorHistory(time.Now())
+	if g.debug {
+		if err := utils.PlotLine(predictHistory, result.PredictMetric, "gru"); err != nil {
+			log.Println("debug plot failed", err)
+		}
+	}
 
 	return
 }
@@ -267,7 +276,7 @@ func (g *GRU) WaitAndUpdate(ctx context.Context) error {
 		log.Println(resp.Error)
 		return fmt.Errorf("python error : %s", resp.Error)
 	}
-	log.Println(resp)
+	log.Printf("train response : %v", resp)
 	g.readyToPredict.Store(resp.Trained)
 	return nil
 }

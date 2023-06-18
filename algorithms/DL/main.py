@@ -3,7 +3,6 @@ import signal
 import sys
 import json
 import socket
-
 import data_preparation
 import net
 import param
@@ -39,6 +38,8 @@ def handle(request):
         param.epochs = request.epochs
     if hasattr(request,'n_layers'):
         param.n_layers = request.n_layers
+    if hasattr(request,"batch_size"):
+        param.batch_size = request.batch_size
     if check_status(request) & param.STATUS_PREDICT:
         metrics = []
         for index, val in enumerate(request.predict_history):
@@ -46,11 +47,11 @@ def handle(request):
         try:
             out = net.predict(metrics,request.key)
         except Exception as e:
-            rsp.error = e.__dict__
+            rsp.error = e.with_traceback(None)
             return rsp
         rsp.trained = True
         rsp.key = request.key
-        rsp.prediction = out.tolist()[0]
+        rsp.prediction = out
         return rsp
     # 训练，接收到数据后进行处理，传回响应的地址并不是数据传递过来时的地址
     if check_status(request) & param.STATUS_TRAIN:
@@ -62,7 +63,7 @@ def handle(request):
         try:
             loss = net.train(train_loader, request.key)
         except Exception as e:
-            rsp.error = e.__dict__
+            rsp.error = e.with_traceback(None)
             client.send(json.dumps(rsp.__dict__))
             return
         rsp.trained = True
